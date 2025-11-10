@@ -102,7 +102,7 @@ The full results are summarized in the table below:
 
 Our research confirms that **parameter-efficient fine-tuning (QLoRA) enables smaller LLMs to achieve or surpass the performance of much larger models** on specialized, domain-specific tasks. The fine-tuned Mistral-7B model outperformed the Llama 3 70B model on the GSM8K and BeerAdvocate datasets.
 
-We also found that the effectiveness of demonstration-retrieval in-context learning (Dr.ICL) was highly dependent on the dataset. While it provided a boost for some tasks, particularly when integrated into the training process, it was not universally beneficial. This highlights the importance of selecting the right fine-tuning strategy for a given application.
+We also found that the effectiveness of demonstration-retrieval in-context learning (Dr.ICL) was highly dependent on the dataset. It provided a boost for most tasks, particularly when integrated into the training process. This highlights the importance of selecting the right fine-tuning strategy for a given application.
 
 ##  Future Work
 
