@@ -17,7 +17,7 @@ class TestEndToEndIntegration(unittest.TestCase):
 
         mock_dataset = MagicMock()
         mock_dataset.shuffle.return_value = mock_dataset
-        mock_dataset.select.return_value = dummy_data[:4000]
+        mock_dataset.select.return_value = mock_dataset
         mock_dataset.train_test_split.side_effect = lambda test_size, seed: {
             'train': dummy_data[:3200],
             'test': dummy_data[3200:4000]
@@ -27,7 +27,7 @@ class TestEndToEndIntegration(unittest.TestCase):
 
         # Mock tokenizer/model
         mock_tokenizer = MagicMock()
-        mock_tokenizer.__call__.return_value = {
+        mock_tokenizer.return_value = {
             "input_ids": [[1, 2, 3]],
             "labels": [[-100, 2, 3]],
             "offset_mapping": [[(0,0), (1,1), (2,2)]]
@@ -57,7 +57,7 @@ class TestEndToEndIntegration(unittest.TestCase):
 
         mock_dataset = MagicMock()
         mock_dataset.shuffle.return_value = mock_dataset
-        mock_dataset.select.return_value = dummy_data[:4000]
+        mock_dataset.select.return_value = mock_dataset
         mock_dataset.train_test_split.side_effect = lambda test_size, seed: {
             'train': dummy_data[:3200],
             'test': dummy_data[3200:4000]
@@ -66,7 +66,7 @@ class TestEndToEndIntegration(unittest.TestCase):
         mock_load_dataset.return_value = mock_dataset
 
         mock_tokenizer = MagicMock()
-        mock_tokenizer.__call__.return_value = {
+        mock_tokenizer.return_value = {
             "input_ids": [[1, 2, 3]],
             "labels": [[-100, 2, 3]],
             "offset_mapping": [[(0,0), (1,1), (2,2)]]

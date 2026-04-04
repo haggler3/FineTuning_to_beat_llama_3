@@ -22,7 +22,7 @@ class TestQLoRAIntegration(unittest.TestCase):
     @patch('Fine_Tune.prepare_model_for_kbit_training')
     @patch('Fine_Tune.LoraConfig')
     @patch('Fine_Tune.Trainer')
-    @patch('Fine_Tune.set_verbosity_error')
+    @patch('Fine_Tune.hf_logging.set_verbosity_error')
     @patch('Fine_Tune.trainer_utils.get_last_checkpoint')
     def test_end_to_end_training_pipeline(
         self, mock_get_ckpt, mock_set_verbosity, mock_trainer_class,
@@ -42,9 +42,9 @@ class TestQLoRAIntegration(unittest.TestCase):
 
         logging.debug("[MOCK] load_dataset patched to return dummy datasets")
 
-        # Mock tokenizer to an object with pad_token property
+        # Mock tokenizer to an object with pad_token
         mock_tokenizer = MagicMock()
-        type(mock_tokenizer).pad_token = property(lambda self: '<pad>')
+        mock_tokenizer.pad_token = '<pad>'
         mock_tokenizer_pretrained.return_value = mock_tokenizer
         logging.debug("[MOCK] AutoTokenizer.from_pretrained patched")
 

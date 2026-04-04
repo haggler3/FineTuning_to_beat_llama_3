@@ -1,0 +1,23 @@
+name: finetune-llama3
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - torch
+    - transformers
+    - accelerate
+    - peft
+    - huggingface_hub
+    - bitsandbytes
+    - datasets
+    - trl
+    - evaluate
+    - bert_score
+    - wandb
+    - sentence-transformers
+    - python-dotenv

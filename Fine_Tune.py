@@ -11,7 +11,7 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling,
     BitsAndBytesConfig,
-    set_verbosity_error,
+    logging as hf_logging,
     trainer_utils
 )
 from datasets import load_dataset
@@ -39,8 +39,8 @@ def main_function(cli_args):
     parser.add_argument(
         '--model_id',
         type=str,
-        default="mistralai/Mistral-7B-Instruct-v0.1",
-        help="Model name or path (e.g., mistralai/Mistral-7B-Instruct-v0.1)"
+        default="EleutherAI/pythia-1b",
+        help="Model name or path (e.g., EleutherAI/pythia-1b)"
     )
     parser.add_argument(
         '--project',
@@ -87,7 +87,7 @@ def main_function(cli_args):
     # ------------------------------
     # Model Setup and Quantization
     # ------------------------------
-    set_verbosity_error()
+    hf_logging.set_verbosity_error()
     gc.collect()
     device = 0 if torch.cuda.is_available() else -1
     print(f"[INFO] Using device: {'cuda' if device == 0 else 'cpu'}")

@@ -4,21 +4,21 @@ import logging
 import numpy as np
 
 # Import your main function from evaluate.py
-from evaluate import main_function
+from Evaluate import main_function
 
 logging.basicConfig(level=logging.DEBUG)
 
 class TestEvaluationIntegration(unittest.TestCase):
 
-    @patch('evaluate.load_dataset')
-    @patch('evaluate.SentenceTransformer')
-    @patch('evaluate.util')
-    @patch('evaluate.AutoTokenizer.from_pretrained')
-    @patch('evaluate.AutoModelForCausalLM.from_pretrained')
-    @patch('evaluate.pipeline')
-    @patch('evaluate.load_metric')
-    @patch('evaluate.wandb')
-    @patch('evaluate.torch.cuda.is_available')
+    @patch('Evaluate.load_dataset')
+    @patch('Evaluate.SentenceTransformer', create=True)
+    @patch('Evaluate.util', create=True)
+    @patch('Evaluate.AutoTokenizer.from_pretrained')
+    @patch('Evaluate.AutoModelForCausalLM.from_pretrained')
+    @patch('Evaluate.pipeline')
+    @patch('Evaluate.load_metric')
+    @patch('Evaluate.wandb')
+    @patch('Evaluate.torch.cuda.is_available')
     def test_end_to_end_with_icl_flag(
             self,
             mock_cuda,

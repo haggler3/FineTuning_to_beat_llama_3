@@ -187,13 +187,17 @@ def main_function(cli_args):
 
     if enable_icl:
         # This block runs if --icl is provided
-        tokenized_train_ICL = train_dataset.map(tokenize_medqa_masked_icl, batched=True, remove_columns=train_dataset.column_names)
+        tokenized_train_dataset = train_dataset.map(tokenize_medqa_masked_icl, batched=True, remove_columns=train_dataset.column_names)
+        tokenized_val_dataset = val_dataset.map(tokenize_medqa_masked_icl, batched=True, remove_columns=val_dataset.column_names)
+        tokenized_test_dataset = test_dataset.map(tokenize_medqa_masked_icl, batched=True, remove_columns=test_dataset.column_names)
         print("Completed ICL-based tokenization.")
     else:
-    # If standard tokenization, upload all three tokenized splits.
+        # If standard tokenization
         tokenized_train_dataset = train_dataset.map(tokenize_medqa_masked, batched=True, remove_columns=train_dataset.column_names)
         tokenized_val_dataset = val_dataset.map(tokenize_medqa_masked, batched=True, remove_columns=val_dataset.column_names)
         tokenized_test_dataset = test_dataset.map(tokenize_medqa_masked, batched=True, remove_columns=test_dataset.column_names)
+
+    if enable_upload and HF_TOKEN:
         tokenized_train_dataset.push_to_hub(destination_repo, config_name="train_tokenized", token=HF_TOKEN, private=True)
         tokenized_val_dataset.push_to_hub(destination_repo, config_name="validation_tokenized", token=HF_TOKEN, private=True)
         tokenized_test_dataset.push_to_hub(destination_repo, config_name="test_tokenized", token=HF_TOKEN, private=True)
