@@ -1,126 +1,109 @@
 
+# 🦙 Can Smaller, Efficiently Fine-Tuned LLMs Outperform Larger Models?
 
-# Can Smaller, Efficiently Fine-Tuned LLMs Outperform Larger Models?
+[![Python 3.10](https://img.shields.io/badge/Python-3.10-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CMUZrz/FineTuning_to_beat_llama_3/blob/main/try_in_colab.ipynb)
 
 **Authors:** Dan Jung, Dhruva Byrapatna, Zachary Zdobinski
-*This Repo is a result of the project for the 10-623 Generative AI Course at Carnegie Mellon University.*
+_This Repo is a result of the project for the 10-623 Generative AI Course at Carnegie Mellon University._
 
-*This Repo and the code that was written is a port of the major code segments and methods developed collaboratively during this project developed by Zachary Zdobinski
-##  Highlights \& Major Results
+---
+
+## Highlights & Major Results
 
 This project demonstrates that smaller, efficiently fine-tuned Large Language Models (LLMs) can outperform larger, more computationally expensive counterparts on specialized tasks.
 
-* **Small Model Outperforms Large Model:** Our fine-tuned **Mistral-7B** model achieved higher accuracy and better performance metrics than the much larger **Llama 3 70B** model on two out of three domain-specific datasets (GSM8K and BeerAdvocate).
-* **QLoRA is Highly Effective:** Using Quantized Low-Rank Adaptation (QLoRA) for fine-tuning consistently provided significant performance improvements over the baseline Mistral-7B model across all datasets.
-* **Combined Approach for Complex Tasks:** For complex, text-heavy tasks like those in the Healthcare and Math (GSM8K) datasets, a combined approach of training with both In-Context Learning (ICL) examples and QLoRA yielded the best results.
-* **Method Effectiveness is Task-Dependent:** The effectiveness of different fine-tuning methods varies by dataset. While combining QLoRA and Dr.ICL was powerful for some tasks, using QLoRA alone was the most effective strategy for the BeerAdvocate dataset, which features many numeric categories.
+- **Small Model Outperforms Large Model:** Our fine-tuned **Mistral-7B** achieved higher accuracy than the massive **Llama 3 70B** on domain-specific datasets (GSM8K and BeerAdvocate).
+- **QLoRA is Highly Effective:** Quantized Low-Rank Adaptation (QLoRA) combined with 4-bit quantization provided significant performance improvements with minimal memory requirements.
+- **In-Context Learning (Dr.ICL):** Using Demonstration-Retrieved In-Context Learning (Dr.ICL) alongside QLoRA yielded the best results for text-heavy reasoning tasks (GSM8K & Healthcare).
 
+---
 
-##  Table of Contents
+## Quick Start
 
-* [Project Overview](#-project-overview)
-* [Methods](#-methods)
-* [Datasets](#-datasets)
-* [Experimental Results](#-experimental-results)
-* [Conclusion](#-conclusion)
-* [Future Work](#-future-work)
-* [Code Overview](#-code-overview)
-* [Key Related Work](#-key-related-work)
+You can run this project easily locally using **Conda** or in the cloud using **Google Colab**.
 
+### Option A: Google Colab
 
-## Project Overview
+Click the badge above or open [`try_in_colab.ipynb`](try_in_colab.ipynb) to test the pipeline interactively!
 
-Recent advances in generative AI have been driven by massive LLMs with billions of parameters. However, training and fine-tuning these models is prohibitively expensive for many. This project investigates whether smaller LLMs, using parameter-efficient fine-tuning (PEFT) methods, can match or exceed the performance of larger models on specialized tasks.
+### Option B: Local Conda Environment
 
-Our objective is to show that a smaller model, when trained on targeted datasets with efficient methods like QLoRA and Demonstration-Retrieved In-Context Learning (Dr.ICL), can achieve higher accuracy, providing a viable alternative for specialized AI applications.
+We provide a convenient Conda environment.
 
-##  Methods
+```bash
+# 1. Clone the repository
+git clone https://github.com/CMUZrz/FineTuning_to_beat_llama_3.git
+cd FineTuning_to_beat_llama_3
 
-We evaluated the performance of a small model (Mistral-7B-Instruct) against a large one (Llama 3 70B) using several enhancement techniques.
+# 2. Create the Conda environment
+conda env create -f environment.yml
 
-### Baseline
+# 3. Activate the environment
+conda activate finetune-llama3
+```
 
-The baseline performance was established using the untuned Mistral-7B and Llama 3 70B models on each dataset in a zero-shot setting.
+_(Alternatively, you can use `pip install -r requirements.txt` if you prefer not to use Conda)._
 
-### Main Methods
+---
 
-1. **Parameter-Efficient Fine-Tuning (QLoRA):** This was our core technique for adapting the smaller model. QLoRA significantly reduces memory requirements and computational cost by combining:
-    * **4-bit NormalFloat Quantization:** Compresses model weights to a 4-bit format.
-    * **Double Quantization:** A second quantization step for even greater memory savings.
-    * **Paged Optimizers:** Prevents out-of-memory errors by managing memory efficiently between the CPU and GPU.
-    * **Low-Rank Adaptation (LoRA):** Freezes most model parameters and only trains a small set of new, "adapter" weights.
-2. **Demonstration-Retrieval for In-Context Learning (Dr.ICL):** This method improves model performance at inference time without changing model weights. For a given question, it retrieves semantically similar examples from a dataset and adds them to the prompt, giving the model a relevant demonstration of the task.
+## 🛠 Usage & Pipeline
 
-### Integrated Pipeline
+### 1. Tokenization (`dataset_tokenizer.py`)
 
-We followed a systematic process:
+Tokenize datasets for standard training or In-Context Learning (ICL) enhanced training.
 
-1. **Establish Baselines:** Evaluate untuned models.
-2. **Fine-Tuning:** Apply QLoRA to the Mistral-7B model for each dataset.
-3. **In-Context Learning:** Apply Dr.ICL to the untuned model.
-4. **Combined Methods:** Integrate QLoRA and Dr.ICL to assess their joint effect.
-5. **Comparative Analysis:** Compare all results to identify the most effective strategies.
+```bash
+python dataset_tokenizer.py --torch_dataset_url "lavita/ChatDoctor-HealthCareMagic-100k" --icl
+```
 
-##  Datasets
+### 2. Fine-Tuning (`Fine_Tune.py`)
 
-We used three distinct datasets to test performance on specialized tasks:
+Run the QLoRA fine-tuning process. You must have a Hugging Face token exported as `HUGGINGFACE_HUB_TOKEN`.
 
-* **Healthcare Magic Dataset:** A high-quality dataset of over 100,000 anonymized patient-doctor conversations. We used a subset for fine-tuning and evaluation, measuring performance with BERTScore against ground-truth answers.
-* **BeerAdvocate Dataset:** A large collection of beer reviews. The task was to classify beers into official Beer Judge Certification Program (BJCP) styles based on user descriptions of aroma, flavor, and appearance.
-* **GSM8K Dataset:** A collection of 8,500 grade-school math word problems. The task was to reason through the problem and provide a final numerical answer. Performance was measured by the accuracy of the final answer.
+```bash
+export HUGGINGFACE_HUB_TOKEN="your_token_here"
+python Fine_Tune.py --project "qlora-run" --user_id "YOUR_HF_USER"
+```
 
+### 3. Evaluation (`Evaluate.py`)
 
-## Experimental Results
+Evaluate your model's performance on the test split using BERTScore or other metrics.
 
-Our experiments show that a fine-tuned small model can consistently outperform a much larger model. The combination of methods that worked best depended on the specific task.
+```bash
+python Evaluate.py --test_dataset "lavita/ChatDoctor-HealthCareMagic-100k" --use_icl
+```
 
-The full results are summarized in the table below:
+---
 
+## 📊 Experimental Results
 
-| Model | Dataset | Accuracy | Precision | Recall | F1 Score |
-| :-- | :-- | :-- | :-- | :-- | :-- |
-| **Mistral Base** | Healthcare | - | .87 | .79 | .83 |
-|  | Beer | - | 0.71 | 0.72 | 0.72 |
-|  | Math | 0.11 | - | - | - |
-| **Base+ICL** | Healthcare | - | .85 | .86 | .86 |
-|  | Beer | - | 0.53 | 0.67 | 0.59 |
-|  | Math | 0.37 | - | - | - |
-| **Base+QLoRA** | Healthcare | - | .86 | .87 | .87 |
-|  | Beer | - | **0.74** | **0.83** | **0.79** |
-|  | Math | 0.35 | - | - | - |
-| **Base+ICL+QLoRA** | Healthcare | - | .85 | .86 | .86 |
-|  | Beer | - | 0.61 | 0.78 | 0.69 |
-|  | Math | 0.31 | - | - | - |
-| **Base ICL train+QLoRA** | Healthcare | - | **.89** | **.90** | **.89** |
-|  | Beer | - | 0.61 | 0.78 | 0.69 |
-|  | Math | **0.42** | - | - | - |
-| **Llama 3.3 70B** | Healthcare | - | .87 | .88 | .87 |
-|  | Beer | - | 0.60 | 0.66 | 0.63 |
-|  | Math | 0.33 | - | - | - |
+| Model                 | Dataset    | F1 / Acc      |
+| :-------------------- | :--------- | :------------ |
+| **Mistral Base**      | Healthcare | 0.83 (F1)     |
+| **Mistral QLoRA**     | Healthcare | 0.87 (F1)     |
+| **Mistral ICL+QLoRA** | Healthcare | **0.89 (F1)** |
+| **Llama 3 70B**       | Healthcare | 0.87 (F1)     |
 
-## Conclusion
+_(See full table in previous versions or paper for other datasets like Beer and Math)._
 
-Our research confirms that **parameter-efficient fine-tuning (QLoRA) enables smaller LLMs to achieve or surpass the performance of much larger models** on specialized, domain-specific tasks. The fine-tuned Mistral-7B model outperformed the Llama 3 70B model on the GSM8K and BeerAdvocate datasets.
+---
 
-We also found that the effectiveness of demonstration-retrieval in-context learning (Dr.ICL) was highly dependent on the dataset. It provided a boost for most tasks, particularly when integrated into the training process. This highlights the importance of selecting the right fine-tuning strategy for a given application.
+## Method Overview
 
-##  Future Work
+1. **Parameter-Efficient Fine-Tuning (QLoRA):** 4-bit NormalFloat Quantization + Paged Optimizers + LoRA. Adapts the smaller model efficiently.
+2. **Demonstration-Retrieval for In-Context Learning (Dr.ICL):** Retrieves semantically similar examples and prepends them to the prompt to dynamically improve performance.
 
-* **Refine Data Quality and Prompt Engineering:** Improving training data and prompt design could further enhance model performance, especially when combining QLoRA and Dr.ICL.
-* **Evaluate on New Domains:** Our approach could be tested on other technical datasets, such as those from the nuclear industry or other scientific fields, to generalize our findings.
+---
 
+## Future Work
+- **Refine Data Quality:** Improve prompt design to further enhance combined QLoRA/Dr.ICL.
+- **New Domains:** Evaluate on legal, medical, or other highly technical contexts.
 
-##  Code Overview
+---
 
-The implementation for this project was handled in several parts:
-
-* **Mistral-7B Evaluations:** Used HuggingFace libraries to run the base Mistral-7B model and evaluate its outputs. A key challenge was creating automated evaluation scripts for each dataset's unique response format.
-* **Llama 3 Evaluations:** As the Llama 3 70B model was too large to run locally, we used API services to get performance benchmarks.
-* **Dr.ICL Implementation:** We built a pipeline to retrieve the top-k most similar examples from a dataset based on cosine similarity of embeddings. These examples were then prepended to the prompt at inference time.
-* **QLoRA Implementation:** We used HuggingFace's `peft` and `transformers` libraries to implement QLoRA. This involved tokenizing the data, applying a mask to ensure the model only trained on the "answer" part of the examples, and configuring the model for 4-bit training.
-
-
-##  Key Related Work
+## Key Related Work
 
 Our work is built upon the insights from several foundational papers in the field of efficient model training and in-context learning:
 
