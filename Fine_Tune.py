@@ -271,7 +271,7 @@ def main_function(cli_args):
             logging_dir="./logs",
             save_strategy="steps",
             save_steps=50,
-            evaluation_strategy="steps",
+            eval_strategy="steps",
             eval_steps=50,
             do_eval=True,
             report_to="wandb",
