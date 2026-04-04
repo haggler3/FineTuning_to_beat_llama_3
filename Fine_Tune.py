@@ -82,21 +82,28 @@ def main_function(cli_args):
     
     # Try to load existing splits, or create them if only 'train' exists
     try:
-        masked_train = load_dataset(dataset_path, token=HF_TOKEN, split="train")
-        try:
-            masked_val = load_dataset(dataset_path, token=HF_TOKEN, split="validation")
-            masked_test = load_dataset(dataset_path, token=HF_TOKEN, split="test")
-            print(f"[SUCCESS] Datasets loaded with existing splits:")
-        except ValueError:
-            # Splits don't exist, create them from train
-            print(f"[INFO] Validation/test splits not found. Creating from train split...")
-            splits = masked_train.train_test_split(test_size=0.2, seed=42)
-            masked_train = splits['train']
-            temp = splits['test']
-            val_test_splits = temp.train_test_split(test_size=0.5, seed=42)
-            masked_val = val_test_splits['train']
-            masked_test = val_test_splits['test']
-            print(f"[SUCCESS] Created train/val/test splits from original train:")
+        # Load the full dataset
+        full_dataset = load_dataset(dataset_path, token=HF_TOKEN, split="train")
+        print(f"[INFO] Loaded raw dataset with {len(full_dataset)} samples")
+        
+        # Downsample to 4000 for faster training
+        if len(full_dataset) > 4000:
+            print(f"[INFO] Downsampling to 4,000 samples...")
+            downsampled = full_dataset.shuffle(seed=42).select(range(4000))
+        else:
+            downsampled = full_dataset
+        
+        # Create train/val/test splits (80/10/10)
+        print(f"[INFO] Creating train/val/test splits...")
+        train_temp_split = downsampled.train_test_split(test_size=0.2, seed=42)
+        masked_train = train_temp_split['train']      # 80%
+        temp = train_temp_split['test']                # 20%
+        
+        val_test_split = temp.train_test_split(test_size=0.5, seed=42)
+        masked_val = val_test_split['train']           # 10% (50% of 20%)
+        masked_test = val_test_split['test']           # 10% (50% of 20%)
+        
+        print(f"[SUCCESS] Datasets created:")
     except Exception as e:
         raise ValueError(f"Failed to load dataset '{dataset_path}': {e}")
     
