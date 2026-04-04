@@ -60,6 +60,12 @@ def main_function(cli_args):
         default=None,
         help="(Optional) HF Hub token. If not set, reads from HUGGINGFACE_HUB_TOKEN env variable."
     )
+    parser.add_argument(
+        '--lora_target_modules',
+        type=str,
+        default="q_proj,v_proj",
+        help="Comma-separated LoRA target modules (e.g., 'q_proj,v_proj' for Mistral or 'q_proj,k_proj,v_proj' for Pythia)"
+    )
 
     args = parser.parse_args(cli_args)
 
@@ -71,6 +77,7 @@ def main_function(cli_args):
     model_id = args.model_id
     project = args.project
     user_id = args.user_id
+    lora_target_modules = [m.strip() for m in args.lora_target_modules.split(",")]
 
     # ------------------------------
     # Load and Prepare Datasets
@@ -178,15 +185,43 @@ def main_function(cli_args):
     # LoRA Configuration and Application
     # ------------------------------
     print("\\n[STEP 3/6] Applying LoRA adapters...")
+    
+    # Auto-detect target modules if default ones not found
+    def find_target_modules(model, preferred_modules):
+        """Find available target modules in the model"""
+        # First try the preferred modules
+        module_names = set()
+        for name, module in model.named_modules():
+            module_names.add(name.split(".")[-1])
+        
+        # Check if preferred modules exist
+        found_modules = [m for m in preferred_modules if m in module_names]
+        if found_modules:
+            return found_modules
+        
+        # Fallback: try common module names across architectures
+        fallback_modules = ["q_proj", "v_proj", "k_proj", "dense", "linear"]
+        found_modules = [m for m in fallback_modules if m in module_names]
+        
+        if found_modules:
+            print(f"[WARNING] Preferred modules not found. Using fallback: {found_modules}")
+            return found_modules
+        
+        # Last resort: use all linear layers
+        print(f"[WARNING] No specific modules found. Using common modules: ['q_proj', 'v_proj']")
+        return ["q_proj", "v_proj"]
+    
+    target_modules = find_target_modules(model, lora_target_modules)
+    
     lora_config = LoraConfig(
         r=8,
         lora_alpha=32,
-        target_modules=["q_proj", "v_proj"],
+        target_modules=target_modules,
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM"
     )
-    print("[INFO] LoRA config: r=8, alpha=32, target_modules=['q_proj', 'v_proj']")
+    print(f"[INFO] LoRA config: r=8, alpha=32, target_modules={target_modules}")
     model = get_peft_model(model, lora_config)
     print("[SUCCESS] LoRA adapters applied")
 
