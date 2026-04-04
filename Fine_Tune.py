@@ -79,10 +79,27 @@ def main_function(cli_args):
     # These can be customized if you want to use different splits/datasets
     print("\n[STEP 1/5] Downloading & loading datasets...")
     print(f"[INFO] Dataset: {dataset_path}")
-    masked_train = load_dataset(dataset_path, token=HF_TOKEN, split="train")
-    masked_val = load_dataset(dataset_path, token=HF_TOKEN, split="validation")
-    masked_test = load_dataset(dataset_path, token=HF_TOKEN, split="test")
-    print(f"[SUCCESS] Datasets loaded:")
+    
+    # Try to load existing splits, or create them if only 'train' exists
+    try:
+        masked_train = load_dataset(dataset_path, token=HF_TOKEN, split="train")
+        try:
+            masked_val = load_dataset(dataset_path, token=HF_TOKEN, split="validation")
+            masked_test = load_dataset(dataset_path, token=HF_TOKEN, split="test")
+            print(f"[SUCCESS] Datasets loaded with existing splits:")
+        except ValueError:
+            # Splits don't exist, create them from train
+            print(f"[INFO] Validation/test splits not found. Creating from train split...")
+            splits = masked_train.train_test_split(test_size=0.2, seed=42)
+            masked_train = splits['train']
+            temp = splits['test']
+            val_test_splits = temp.train_test_split(test_size=0.5, seed=42)
+            masked_val = val_test_splits['train']
+            masked_test = val_test_splits['test']
+            print(f"[SUCCESS] Created train/val/test splits from original train:")
+    except Exception as e:
+        raise ValueError(f"Failed to load dataset '{dataset_path}': {e}")
+    
     print(f"  - Training samples: {len(masked_train)}")
     print(f"  - Validation samples: {len(masked_val)}")
     print(f"  - Test samples: {len(masked_test)}")
