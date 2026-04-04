@@ -77,21 +77,31 @@ def main_function(cli_args):
     # ------------------------------
 
     # These can be customized if you want to use different splits/datasets
-    print("[INFO] Downloading & loading datasets...")
+    print("\n[STEP 1/5] Downloading & loading datasets...")
+    print(f"[INFO] Dataset: {dataset_path}")
     masked_train = load_dataset(dataset_path, token=HF_TOKEN, split="train")
     masked_val = load_dataset(dataset_path, token=HF_TOKEN, split="validation")
     masked_test = load_dataset(dataset_path, token=HF_TOKEN, split="test")
-
-    # (If you want different splits or full datasets separate from tokenized/processed, load them here.)
+    print(f"[SUCCESS] Datasets loaded:")
+    print(f"  - Training samples: {len(masked_train)}")
+    print(f"  - Validation samples: {len(masked_val)}")
+    print(f"  - Test samples: {len(masked_test)}")
 
     # ------------------------------
     # Model Setup and Quantization
     # ------------------------------
+    print("\n[STEP 2/5] Setting up model and quantization...")
     hf_logging.set_verbosity_error()
     gc.collect()
     device = 0 if torch.cuda.is_available() else -1
-    print(f"[INFO] Using device: {'cuda' if device == 0 else 'cpu'}")
+    device_name = 'CUDA' if device == 0 else 'CPU'
+    print(f"[INFO] Device: {device_name}")
+    if device == 0:
+        print(f"[INFO] GPU: {torch.cuda.get_device_name(0)}")
+        print(f"[INFO] Available VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+    
     compute_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+    print(f"[INFO] Compute dtype: {compute_dtype}")
     bnb_cfg = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -102,21 +112,26 @@ def main_function(cli_args):
     print(f"[INFO] Loading tokenizer for '{model_id}'...")
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
+    print(f"[SUCCESS] Tokenizer loaded. Vocab size: {len(tokenizer)}")
 
-    print(f"[INFO] Loading quantized model '{model_id}'...")
+    print(f"[INFO] Loading quantized model '{model_id}' with 4-bit quantization...")
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=bnb_cfg,
         device_map="auto",
         trust_remote_code=True,
     )
+    print(f"[SUCCESS] Model loaded")
 
+    print(f"[INFO] Enabling gradient checkpointing...")
     model.gradient_checkpointing_enable()
     model = prepare_model_for_kbit_training(model)
+    print(f"[SUCCESS] Model prepared for k-bit training")
 
     # ------------------------------
     # LoRA Configuration and Application
     # ------------------------------
+    print("\n[STEP 3/5] Applying LoRA adapters...")
     lora_config = LoraConfig(
         r=8,
         lora_alpha=32,
@@ -125,27 +140,38 @@ def main_function(cli_args):
         bias="none",
         task_type="CAUSAL_LM"
     )
-    print("[INFO] Wrapping model with LoRA adapters...")
+    print("[INFO] LoRA config: r=8, alpha=32, target_modules=['q_proj', 'v_proj']")
     model = get_peft_model(model, lora_config)
+    print("[SUCCESS] LoRA adapters applied")
 
     # Assert trainable params > 0
     model.print_trainable_parameters()
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"[ASSERT] Trainable parameters: {trainable_params}")
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"[METRICS] Total parameters: {total_params:,}")
+    print(f"[METRICS] Trainable parameters: {trainable_params:,} ({100*trainable_params/total_params:.2f}%)")
     assert trainable_params > 0, "No trainable parameters found with LoRA applied!"
 
     # ------------------------------
     # Experiment Output & Tracking Setup
     # ------------------------------
+    print("\n[STEP 4/5] Setting up experiment tracking...")
     base_model_name = model_id.split("/")[-1]
     run_name = f"{base_model_name}-{project}"
     output_dir = os.path.join(".", run_name)
     os.makedirs(output_dir, exist_ok=True)
+    print(f"[INFO] Run name: {run_name}")
+    print(f"[INFO] Output directory: {output_dir}")
 
     # ------------------------------
     # Training Arguments and Trainer
     # ------------------------------
-    print("[INFO] Setting up Trainer and training arguments...")
+    print("[STEP 5/5] Initializing Trainer...")
+    print("[INFO] Training configuration:")
+    print(f"  - Max steps: 1000")
+    print(f"  - Learning rate: 2.5e-5")
+    print(f"  - Batch size: 2 (per device)")
+    print(f"  - Eval/Save every: 50 steps")
     trainer = Trainer(
         model=model,
         train_dataset=masked_train,
@@ -178,13 +204,20 @@ def main_function(cli_args):
     # ------------------------------
     # Training and Checkpointing
     # ------------------------------
+    print("\n" + "="*60)
+    print("TRAINING STARTED")
+    print("="*60)
     last_ckpt = trainer_utils.get_last_checkpoint(output_dir)
     if last_ckpt is not None:
-        print(f"[INFO] Resuming training from checkpoint in {output_dir}")
+        print(f"[INFO] Resuming training from checkpoint: {last_ckpt}")
         trainer.train(resume_from_checkpoint=output_dir)
     else:
-        print(f"[INFO] Starting fresh training, checkpoints will be saved to {output_dir}")
+        print(f"[INFO] Starting fresh training")
+        print(f"[INFO] Checkpoints will be saved to: {output_dir}")
         trainer.train()
+    print("\n" + "="*60)
+    print("TRAINING COMPLETED")
+    print("="*60)
 
     # ------------------------------
     # Saving Model and Tokenizer
@@ -196,18 +229,32 @@ def main_function(cli_args):
     # ------------------------------
     # Uploading to Hugging Face Hub
     # ------------------------------
+    print("\n[FINAL STEP] Uploading model to Hugging Face Hub...")
     dataset_name = os.path.basename(dataset_path.rstrip('/'))
     api = HfApi()
-    print(f"[INFO] Creating repo USER_ID/{run_name} on Hugging Face Hub (if not already exists)...")
-    api.create_repo(repo_id=f"{user_id}/{run_name}", exist_ok=True)
+    repo_id = f"{user_id}/{run_name}"
+    print(f"[INFO] Creating repo: {repo_id}")
+    try:
+        api.create_repo(repo_id=repo_id, exist_ok=True)
+        print(f"[SUCCESS] Repository ready")
+    except Exception as e:
+        print(f"[WARNING] Could not create repo: {e}")
 
-    print(f"[INFO] Pushing model and config to the hub in repo {user_id}/{run_name}...")
-    trainer.push_to_hub(
-        repo_id=f"{user_id}/{run_name}",
-        commit_message=f"QLoRA fine-tuned on {dataset_name}"
-    )
+    print(f"[INFO] Pushing model to hub...")
+    try:
+        trainer.push_to_hub(
+            repo_id=repo_id,
+            commit_message=f"QLoRA fine-tuned on {dataset_name}"
+        )
+        print(f"[SUCCESS] Model pushed to: https://huggingface.co/{repo_id}")
+    except Exception as e:
+        print(f"[WARNING] Could not push to hub: {e}")
 
-    print("[SUCCESS] Training complete and model pushed to hub.")
+    print("\n" + "="*60)
+    print("✓ FINE-TUNING PIPELINE COMPLETE")
+    print("="*60)
+    print(f"Model saved locally at: {output_dir}")
+    print(f"Model on Hub: https://huggingface.co/{repo_id}")
     return 0
 
 if __name__ == "__main__":
