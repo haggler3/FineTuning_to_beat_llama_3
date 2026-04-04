@@ -66,6 +66,17 @@ def main_function(cli_args):
         default="q_proj,v_proj",
         help="Comma-separated LoRA target modules (e.g., 'q_proj,v_proj' for Mistral or 'q_proj,k_proj,v_proj' for Pythia)"
     )
+    parser.add_argument(
+        '--use_wandb',
+        action='store_true',
+        default=True,
+        help="Enable Weights & Biases logging (default: enabled)"
+    )
+    parser.add_argument(
+        '--no_wandb',
+        action='store_true',
+        help="Disable Weights & Biases logging"
+    )
 
     args = parser.parse_args(cli_args)
 
@@ -78,6 +89,10 @@ def main_function(cli_args):
     project = args.project
     user_id = args.user_id
     lora_target_modules = [m.strip() for m in args.lora_target_modules.split(",")]
+    
+    # Handle wandb flag (default: enabled, can be disabled with --no_wandb)
+    use_wandb = not args.no_wandb
+    wandb_report = "wandb" if use_wandb else "none"
 
     # ------------------------------
     # Load and Prepare Datasets
@@ -253,6 +268,7 @@ def main_function(cli_args):
     print(f"  - Learning rate: 2.5e-5")
     print(f"  - Batch size: 2 (per device)")
     print(f"  - Eval/Save every: 50 steps")
+    print(f"  - Weights & Biases: {'✓ Enabled' if use_wandb else '✗ Disabled'}")
     trainer = Trainer(
         model=model,
         train_dataset=masked_train,
@@ -274,7 +290,7 @@ def main_function(cli_args):
             eval_strategy="steps",
             eval_steps=50,
             do_eval=True,
-            report_to="wandb",
+            report_to=wandb_report,
             run_name=f"{run_name}-{datetime.now().strftime('%Y-%m-%d-%H-%M')}"
         ),
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
