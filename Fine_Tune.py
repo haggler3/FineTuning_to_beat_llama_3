@@ -140,46 +140,48 @@ def main_function(cli_args):
     tokenizer.pad_token = tokenizer.eos_token
     print(f"[SUCCESS] Tokenizer loaded. Vocab size: {len(tokenizer)}")
     
-    def tokenize_function(examples):
-        """Tokenize text examples for causal language modeling"""
+    def tokenize_function(example):
+        """Tokenize a single example for causal language modeling"""
         # Combine text from different fields
-        texts = []
-        for i in range(len(examples[list(examples.keys())[0]])):
-            # Try different text field combinations
-            if 'text' in examples:
-                text = examples['text'][i]
-            elif 'instruction' in examples and 'output' in examples:
-                instr = examples['instruction'][i] if examples['instruction'][i] else ''
-                inp = examples.get('input', [None] * len(examples['instruction']))[i] or ''
-                output = examples['output'][i] if examples['output'][i] else ''
-                text = f"Instruction: {instr}\nInput: {inp}\nOutput: {output}"
-            elif 'content' in examples:
-                text = examples['content'][i]
-            else:
-                text = " ".join(str(v[i]) for v in examples.values() if isinstance(v[i], str))
-            
-            texts.append(text)
+        if 'text' in example and example['text']:
+            text = example['text']
+        elif 'instruction' in example and 'output' in example:
+            instr = example.get('instruction', '') or ''
+            inp = example.get('input', '') or ''
+            output = example.get('output', '') or ''
+            text = f"{instr}\n{inp}\n{output}"
+        elif 'content' in example:
+            text = example['content']
+        else:
+            # Fallback: concatenate all string fields
+            text = " ".join(str(v) for k, v in example.items() if isinstance(v, str) and v)
         
-        # Tokenize 
+        # Ensure text is a string
+        if not isinstance(text, str):
+            text = str(text)
+        
+        # Tokenize with explicit attention mask
         tokenized = tokenizer(
-            texts,
+            text,
             truncation=True,
             padding="max_length",
             max_length=512,
-            return_tensors=None
+            return_tensors=None,
+            return_attention_mask=True
         )
         
-        # Set labels equal to input_ids for causal language modeling
+        # Set labels to input_ids for language modeling (input_ids and labels must be lists)
         tokenized["labels"] = tokenized["input_ids"].copy()
+        
         return tokenized
     
     print("[TOKENIZING] Processing training set...")
-    masked_train = masked_train.map(tokenize_function, batched=True, remove_columns=masked_train.column_names)
+    masked_train = masked_train.map(tokenize_function, remove_columns=masked_train.column_names)
     print("[TOKENIZING] Processing validation set...")
-    masked_val = masked_val.map(tokenize_function, batched=True, remove_columns=masked_val.column_names)
+    masked_val = masked_val.map(tokenize_function, remove_columns=masked_val.column_names)
     print("[TOKENIZING] Processing test set...")
-    masked_test = masked_test.map(tokenize_function, batched=True, remove_columns=masked_test.column_names)
-    print("[SUCCESS] Tokenization complete")
+    masked_test = masked_test.map(tokenize_function, remove_columns=masked_test.column_names)
+    print(f"[SUCCESS] Tokenization complete")
 
     # ------------------------------
     # Model Setup and Quantization
