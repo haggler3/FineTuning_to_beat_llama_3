@@ -77,7 +77,7 @@ def main_function(cli_args):
     # ------------------------------
 
     # These can be customized if you want to use different splits/datasets
-    print("\n[STEP 1/5] Downloading & loading datasets...")
+    print("\\n[STEP 1/6] Downloading & loading datasets...")
     print(f"[INFO] Dataset: {dataset_path}")
     
     # Try to load existing splits, or create them if only 'train' exists
@@ -111,10 +111,35 @@ def main_function(cli_args):
     print(f"  - Validation samples: {len(masked_val)}")
     print(f"  - Test samples: {len(masked_test)}")
 
+    # Tokenize datasets
+    print("\n[TOKENIZING] Preparing tokenizer...")
+    print(f"[INFO] Loading tokenizer for '{model_id}'...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    tokenizer.pad_token = tokenizer.eos_token
+    print(f"[SUCCESS] Tokenizer loaded. Vocab size: {len(tokenizer)}")
+    
+    def tokenize_function(examples):
+        """Tokenize text examples for language modeling"""
+        return tokenizer(
+            examples.get('text') or examples.get('instruction', [''])[0],
+            truncation=True,
+            padding="max_length",
+            max_length=512,
+            return_tensors=None
+        )
+    
+    print("[TOKENIZING] Processing training set...")
+    masked_train = masked_train.map(tokenize_function, batched=True, remove_columns=masked_train.column_names)
+    print("[TOKENIZING] Processing validation set...")
+    masked_val = masked_val.map(tokenize_function, batched=True, remove_columns=masked_val.column_names)
+    print("[TOKENIZING] Processing test set...")
+    masked_test = masked_test.map(tokenize_function, batched=True, remove_columns=masked_test.column_names)
+    print("[SUCCESS] Tokenization complete")
+
     # ------------------------------
     # Model Setup and Quantization
     # ------------------------------
-    print("\n[STEP 2/5] Setting up model and quantization...")
+    print("\\n[STEP 2/6] Setting up model and quantization...")
     hf_logging.set_verbosity_error()
     gc.collect()
     device = 0 if torch.cuda.is_available() else -1
@@ -133,10 +158,7 @@ def main_function(cli_args):
         bnb_4bit_use_double_quant=True,
     )
 
-    print(f"[INFO] Loading tokenizer for '{model_id}'...")
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-    tokenizer.pad_token = tokenizer.eos_token
-    print(f"[SUCCESS] Tokenizer loaded. Vocab size: {len(tokenizer)}")
+    print(f"[INFO] Model: {model_id}")
 
     print(f"[INFO] Loading quantized model '{model_id}' with 4-bit quantization...")
     model = AutoModelForCausalLM.from_pretrained(
@@ -155,7 +177,7 @@ def main_function(cli_args):
     # ------------------------------
     # LoRA Configuration and Application
     # ------------------------------
-    print("\n[STEP 3/5] Applying LoRA adapters...")
+    print("\\n[STEP 3/6] Applying LoRA adapters...")
     lora_config = LoraConfig(
         r=8,
         lora_alpha=32,
@@ -179,7 +201,7 @@ def main_function(cli_args):
     # ------------------------------
     # Experiment Output & Tracking Setup
     # ------------------------------
-    print("\n[STEP 4/5] Setting up experiment tracking...")
+    print("\n[STEP 4/6] Setting up experiment tracking...")
     base_model_name = model_id.split("/")[-1]
     run_name = f"{base_model_name}-{project}"
     output_dir = os.path.join(".", run_name)
@@ -190,7 +212,7 @@ def main_function(cli_args):
     # ------------------------------
     # Training Arguments and Trainer
     # ------------------------------
-    print("[STEP 5/5] Initializing Trainer...")
+    print("[STEP 5/6] Initializing Trainer...")
     print("[INFO] Training configuration:")
     print(f"  - Max steps: 1000")
     print(f"  - Learning rate: 2.5e-5")
@@ -253,7 +275,7 @@ def main_function(cli_args):
     # ------------------------------
     # Uploading to Hugging Face Hub
     # ------------------------------
-    print("\n[FINAL STEP] Uploading model to Hugging Face Hub...")
+    print("\n[STEP 6/6] Uploading model to Hugging Face Hub...")
     dataset_name = os.path.basename(dataset_path.rstrip('/'))
     api = HfApi()
     repo_id = f"{user_id}/{run_name}"
