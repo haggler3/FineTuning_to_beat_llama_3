@@ -141,14 +141,37 @@ def main_function(cli_args):
     print(f"[SUCCESS] Tokenizer loaded. Vocab size: {len(tokenizer)}")
     
     def tokenize_function(examples):
-        """Tokenize text examples for language modeling"""
-        return tokenizer(
-            examples.get('text') or examples.get('instruction', [''])[0],
+        """Tokenize text examples for causal language modeling"""
+        # Combine text from different fields
+        texts = []
+        for i in range(len(examples[list(examples.keys())[0]])):
+            # Try different text field combinations
+            if 'text' in examples:
+                text = examples['text'][i]
+            elif 'instruction' in examples and 'output' in examples:
+                instr = examples['instruction'][i] if examples['instruction'][i] else ''
+                inp = examples.get('input', [None] * len(examples['instruction']))[i] or ''
+                output = examples['output'][i] if examples['output'][i] else ''
+                text = f"Instruction: {instr}\nInput: {inp}\nOutput: {output}"
+            elif 'content' in examples:
+                text = examples['content'][i]
+            else:
+                text = " ".join(str(v[i]) for v in examples.values() if isinstance(v[i], str))
+            
+            texts.append(text)
+        
+        # Tokenize 
+        tokenized = tokenizer(
+            texts,
             truncation=True,
             padding="max_length",
             max_length=512,
             return_tensors=None
         )
+        
+        # Set labels equal to input_ids for causal language modeling
+        tokenized["labels"] = tokenized["input_ids"].copy()
+        return tokenized
     
     print("[TOKENIZING] Processing training set...")
     masked_train = masked_train.map(tokenize_function, batched=True, remove_columns=masked_train.column_names)
