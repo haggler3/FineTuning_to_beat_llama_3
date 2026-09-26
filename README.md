@@ -1,12 +1,11 @@
 
-# 🦙 Can Smaller, Efficiently Fine-Tuned LLMs Outperform Larger Models?
+#Custom Foundation Model Adaptation & Evaluation Pipeline (Utilizing In Context Learning) 
 
 [![Python 3.10](https://img.shields.io/badge/Python-3.10-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CMUZrz/FineTuning_to_beat_llama_3/blob/main/try_in_colab.ipynb)
 
 **Authors:** Dan Jung, Dhruva Byrapatna, Zachary Zdobinski
-_This Repo is a result of the project for the 10-623 Generative AI Course at Carnegie Mellon University._
 
 ---
 
@@ -48,7 +47,7 @@ _(Alternatively, you can use `pip install -r requirements.txt` if you prefer not
 
 ---
 
-## 🛠 Usage & Pipeline
+##  Usage & Pipeline
 
 ### 1. Tokenization (`dataset_tokenizer.py`)
 
@@ -77,7 +76,7 @@ python Evaluate.py --test_dataset "lavita/ChatDoctor-HealthCareMagic-100k" --use
 
 ---
 
-## 📊 Experimental Results
+## Experimental Results
 
 | Model                 | Dataset    | F1 / Acc      |
 | :-------------------- | :--------- | :------------ |
