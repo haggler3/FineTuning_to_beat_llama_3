@@ -1,12 +1,24 @@
-torch
-transformers
-accelerate
-peft
-huggingface_hub
-bitsandbytes
-datasets
+# Verified end-to-end on a GCP spot NVIDIA T4 (driver 580, CUDA 12.9),
+# Ubuntu 22.04 / Python 3.10, on 2026-09-20.
+#
+# transformers is held below 5.0 deliberately: transformers 5.x removes
+# TrainingArguments(logging_dir=...) and breaks bert_score, whose tokenizer call
+# raises "OverflowError: int too big to convert" against the new tokenizers API.
+# sentence-transformers is held below 4.0 for the same reason - 6.x requires
+# transformers>=5.
+
+torch>=2.4
+transformers==4.46.3
+tokenizers==0.20.3
+accelerate==1.15.0
+peft==0.21.0
+bitsandbytes==0.50.2
+datasets==5.0.1
+huggingface_hub==0.36.2
+evaluate==0.4.6
+bert_score==0.3.12
+sentence-transformers==3.2.1
+numpy==2.2.6
 trl
-evaluate
-bert_score
 wandb
 python-dotenv

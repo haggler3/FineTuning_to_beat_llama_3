@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qlora-icl"
+version = "0.2.0"
+description = "QLoRA fine-tuning with demonstration-retrieved in-context learning, and an evaluation harness that refuses to leak."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Dan Jung" },
+    { name = "Dhruva Byrapatna" },
+    { name = "Zachary Zdobinski" },
+]
+keywords = ["qlora", "lora", "peft", "in-context-learning", "retrieval", "fine-tuning"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Versions held deliberately - see requirements.txt for why transformers is
+# pinned below 5.0.
+dependencies = [
+    "torch>=2.4",
+    "transformers==4.46.3",
+    "tokenizers==0.20.3",
+    "accelerate==1.15.0",
+    "peft==0.21.0",
+    "bitsandbytes==0.50.2",
+    "datasets==5.0.1",
+    "huggingface_hub==0.36.2",
+    "evaluate==0.4.6",
+    "bert_score==0.3.12",
+    "sentence-transformers==3.2.1",
+    "numpy==2.2.6",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+tracking = ["wandb", "python-dotenv"]
+dev = ["ruff>=0.6", "pytest>=8.0"]
+
+[project.scripts]
+qlora-train = "qlora_icl.train:main"
+qlora-eval = "qlora_icl.evaluation:main"
+qlora-tokenize = "qlora_icl.tokenize_dataset:main"
+
+[project.urls]
+Repository = "https://github.com/CMUZrz/FineTuning_to_beat_llama_3"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",  # long lines are handled by the formatter, not enforced here
+    "B008",  # argparse defaults built in-call are idiomatic in these scripts
+]

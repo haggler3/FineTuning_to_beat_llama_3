@@ -1,9 +1,11 @@
 import argparse
-from sentence_transformers import SentenceTransformer, util
+import os
+
 import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer # Assuming a tokenizer is needed
-import os
+from sentence_transformers import SentenceTransformer, util
+from transformers import AutoTokenizer  # Assuming a tokenizer is needed
+
 # --- Argument Parsing ---
 # Instantiate the parser
 
@@ -11,25 +13,30 @@ def main_function(cli_args):
 
     parser = argparse.ArgumentParser(description='Run pre-training with an optional ICL flag.')
 
-    parser.add_argument('--icl', 
-                        action='store_true', 
+    parser.add_argument('--icl',
+                        action='store_true',
                         help='Enable In-Context Learning (ICL) pre-training (default: disabled).')
 
     # This argument is correctly configured.
-    parser.add_argument('--torch_dataset_url', 
-                        type=str, 
+    parser.add_argument('--torch_dataset_url',
+                        type=str,
                         default="lavita/ChatDoctor-HealthCareMagic-100k",
                         help='Identifier for the dataset to load from Hugging Face Hub.')
 
     # CORRECTED: Use action='store_true'.
     # The default is False. Providing the --upload flag sets it to True.
-    parser.add_argument('--upload', 
-                        action='store_true', 
+    parser.add_argument('--model_id',
+                        type=str,
+                        default="EleutherAI/pythia-1b",
+                        help='Model whose tokenizer to use. Must match the model passed to Fine_Tune.py.')
+
+    parser.add_argument('--upload',
+                        action='store_true',
                         help='Enable optional uploads to the HF hub (default: disabled).')
 
     # CORRECTED: The help message has been fixed to be descriptive.
-    parser.add_argument('--destination_torch_folder', 
-                        type=str, 
+    parser.add_argument('--destination_torch_folder',
+                        type=str,
                         default="hf_user_id/name",
                         help='Specify the Hugging Face Hub repository for uploads (e.g., "username/repo-name").')
 
@@ -70,9 +77,13 @@ def main_function(cli_args):
 
     # --- Tokenizer and Model Loading ---
 
-    # Assuming a tokenizer is needed, as it was used in the original functions
-    # Replace "bert-base-uncased" with your model of choice
-    tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+    # Must be the tokenizer of the model being fine-tuned. This previously
+    # hardcoded bert-base-uncased, a masked-LM tokenizer with a different
+    # vocabulary, so the ids produced here did not correspond to the causal LM
+    # they were fed to.
+    tokenizer = AutoTokenizer.from_pretrained(args.model_id, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     # Load GTR model for retrieval
     model_GTR = SentenceTransformer('sentence-transformers/gtr-t5-base')
@@ -84,7 +95,7 @@ def main_function(cli_args):
     def tokenize_medqa_masked(examples):
         prompts = [
             f"instruction: {instr}, input: {input} please give a medical response answer: {answer}"
-            for instr, input, answer in zip(examples["instruction"], examples["input"], examples["output"])
+            for instr, input, answer in zip(examples["instruction"], examples["input"], examples["output"], strict=True)
         ]
         tokenized = tokenizer(
             prompts,
@@ -151,7 +162,7 @@ def main_function(cli_args):
         ]
         prompts = []
         answer_positions = []
-        for icl, instr, input_txt, answer in zip(icl_contexts, examples["instruction"], examples["input"], examples["output"]):
+        for icl, instr, input_txt, answer in zip(icl_contexts, examples["instruction"], examples["input"], examples["output"], strict=True):
             question_part = f"instruction: {instr}, input: {input_txt} please give a medical response answer: "
             full_prompt = f"{icl}\n\n{question_part}{answer}"
             answer_start = len(icl) + len("\n\n") + len(question_part)
@@ -202,50 +213,6 @@ def main_function(cli_args):
         tokenized_val_dataset.push_to_hub(destination_repo, config_name="validation_tokenized", token=HF_TOKEN, private=True)
         tokenized_test_dataset.push_to_hub(destination_repo, config_name="test_tokenized", token=HF_TOKEN, private=True)
 
-    if enable_upload and HF_TOKEN:
-
-        # Remove slashes and hyphens from repo names
-        tokenized_train_dataset.push_to_hub(
-            destination_repo,  # Valid format: namespace/repo_name
-            token=HF_TOKEN,
-            private=True,
-            #repo_type="dataset"  # Explicitly specify dataset type
-        )
-
-        tokenized_val_dataset.push_to_hub(
-            destination_repo,
-            token=HF_TOKEN,
-            private=True,
-            #repo_type="dataset"
-        )
-
-        tokenized_test_dataset.push_to_hub(
-            destination_repo,
-            token=HF_TOKEN,
-            private=True,
-        )
-
-        # Remove slashes and hyphens from repo names
-        train_dataset.push_to_hub(
-            destination_repo,  # Valid format: namespace/repo_name
-            token=HF_TOKEN,
-            private=True,
-            #repo_type="dataset"  # Explicitly specify dataset type
-        )
-
-        val_dataset.push_to_hub(
-            destination_repo,
-            token=HF_TOKEN,
-            private=True,
-            #repo_type="dataset"
-        )
-
-        test_dataset.push_to_hub(
-            destination_repo,
-            token=HF_TOKEN,
-            private=True,
-        )
-        
     return {
         "tokenized_train_dataset": tokenized_train_dataset,
         "tokenized_val_dataset": tokenized_val_dataset,
@@ -256,8 +223,11 @@ def main_function(cli_args):
     }
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    """Console-script entry point."""
     import sys
-    main_function(sys.argv[1:])
-    
-    
+    return main_function(sys.argv[1:] if argv is None else argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

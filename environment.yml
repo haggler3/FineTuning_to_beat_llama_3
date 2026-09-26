@@ -1,23 +1,12 @@
-name: finetune-llama3
+# Conda environment mirroring requirements.txt.
+# Versions are pinned for the reasons documented in requirements.txt.
+name: qlora-icl
 channels:
   - pytorch
   - nvidia
   - conda-forge
-  - defaults
 dependencies:
   - python=3.10
   - pip
   - pip:
-    - torch
-    - transformers
-    - accelerate
-    - peft
-    - huggingface_hub
-    - bitsandbytes
-    - datasets
-    - trl
-    - evaluate
-    - bert_score
-    - wandb
-    - sentence-transformers
-    - python-dotenv
+      - -r requirements.txt

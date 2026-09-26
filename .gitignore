@@ -1,9 +1,32 @@
+# Secrets
 *.env
 .env
 secrets.env
+
+# Python
 __pycache__/
-.mypy_cache/
-.pytest_cache/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
 .venv/
 venv/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Training artefacts
+logs/
+wandb/
+*.pt
+*-qlora-run/
+*-smoke/
+checkpoint-*/
+
+# Terraform state (may contain sensitive values)
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/terraform.tfvars

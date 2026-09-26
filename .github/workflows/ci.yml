@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (python ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both filesystems on purpose. Test discovery once behaved differently
+        # between case-insensitive (Windows) and case-sensitive (Linux) hosts,
+        # which hid a suite that collected zero tests.
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The suite stubs torch/transformers/peft, so CI needs no ML install
+      # and no GPU. It runs in seconds.
+      - name: Run test suite
+        run: python scripts/run_tests_light.py
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff>=0.6
+
+      # Lint only. Formatting is deliberately not enforced in this pass: a
+      # repo-wide reformat would bury the substantive diff.
+      - name: Lint
+        run: ruff check src tests scripts docs
+
+  package:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build distribution
+        run: |
+          pip install build
+          python -m build
+
+      - name: Verify metadata
+        run: |
+          pip install twine
+          twine check dist/*
