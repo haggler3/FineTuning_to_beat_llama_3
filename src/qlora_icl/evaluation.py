@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 
 import numpy as np
@@ -7,6 +8,7 @@ from evaluate import load as load_metric
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
+from qlora_icl.adaptive_retrieval import AdaptiveKConfig, select_k
 from qlora_icl.splits import DEFAULT_MAX_SAMPLES, DEFAULT_SEED, build_splits, split_fingerprint
 
 MAX_SCORED_TOKENS = 512
@@ -37,20 +39,45 @@ def retrieve_top_k(corpus_inputs, corpus_embeddings, corpus_outputs,
     return all_retrieved
 
 
+def build_icl_context(retrieved):
+    """Render a list of {input, label, score} demonstrations as prompt text."""
+    return "".join(
+        f"Input: {r['input']}\nOutput: {r['label']}\n\n" for r in retrieved
+    )
+
+
 def icl_prompts_batch(inputs, corpus_inputs, corpus_embeddings, corpus_outputs,
-                      model_GTR, util, top_k=5):
-    """Build an ICL context string for each input in the batch."""
+                      model_GTR, util, top_k=5, adaptive_config=None):
+    """Build an ICL context string for each input in the batch.
+
+    In fixed mode (adaptive_config=None) every query gets exactly top_k
+    demonstrations, retrieved best-first. In adaptive mode, a pool of up to
+    adaptive_config.max_k candidates is retrieved per query and select_k()
+    decides how many of them to actually spend - an easy query (one clearly
+    best match) may use just one; a query with several close matches may use
+    the full pool.
+
+    Returns (prompts, k_used) - k_used[i] is how many demonstrations ended up
+    in prompt i's context, so callers can report what the adaptive budget
+    actually spent.
+    """
+    pool_size = max(top_k, adaptive_config.max_k) if adaptive_config else top_k
     retrieved_batches = retrieve_top_k(
         corpus_inputs, corpus_embeddings, corpus_outputs,
-        model_GTR, util, inputs, top_k=top_k,
+        model_GTR, util, inputs, top_k=pool_size,
     )
-    prompt_contexts = []
+
+    prompt_contexts, k_used = [], []
     for retrieved in retrieved_batches:
-        context = ""
-        for r in retrieved:
-            context += f"Input: {r['input']}\nOutput: {r['label']}\n\n"
-        prompt_contexts.append(context)
-    return prompt_contexts
+        # retrieve_top_k comes from torch.topk, which is sorted descending, so
+        # retrieved is already best-first - slicing the first k keeps the best.
+        if adaptive_config is not None:
+            k = select_k([r["score"] for r in retrieved], adaptive_config)
+        else:
+            k = min(top_k, len(retrieved))
+        prompt_contexts.append(build_icl_context(retrieved[:k]))
+        k_used.append(k)
+    return prompt_contexts, k_used
 
 
 def assert_no_leakage(corpus_inputs, eval_inputs):
@@ -88,14 +115,41 @@ def main_function(cli_args):
     parser.add_argument('--no_wandb', action='store_true', help="Disable Weights & Biases logging.")
     parser.add_argument('--hf_token', default=None, help="Optional: HF_TOKEN (or from env)")
     parser.add_argument('--batch_size', type=int, default=16, help="Batch size for text generation and evaluation.")
-    parser.add_argument('--icl_top_k', type=int, default=5, help="Top-k retrieval for ICL context (if enabled)")
+    parser.add_argument('--icl_top_k', type=int, default=5,
+                        help="Fixed number of demonstrations per query. Also the ceiling on "
+                             "how many a query can use in --adaptive_k mode.")
+    parser.add_argument('--adaptive_k', action='store_true',
+                        help="Choose how many demonstrations to use per query instead of "
+                             "always using --icl_top_k. An easy query (one clearly best match "
+                             "in the corpus) spends fewer tokens; a query with several equally "
+                             "good matches spends up to --icl_top_k. No effect without --use_icl.")
+    parser.add_argument('--adaptive_min_k', type=int, default=1,
+                        help="Minimum demonstrations per query in --adaptive_k mode.")
+    parser.add_argument('--adaptive_relative_drop', type=float, default=0.85,
+                        help="In --adaptive_k mode, keep a demonstration only while its "
+                             "similarity score is >= this fraction of the query's best match.")
+    parser.add_argument('--adaptive_absolute_floor', type=float, default=0.0,
+                        help="In --adaptive_k mode, never keep a demonstration below this "
+                             "absolute similarity score, regardless of --adaptive_relative_drop.")
     parser.add_argument('--seed', type=int, default=DEFAULT_SEED,
                         help="Must match the --seed used by Fine_Tune.py, or the test split will differ.")
     parser.add_argument('--max_samples', type=int, default=DEFAULT_MAX_SAMPLES,
                         help="Must match the --max_samples used by Fine_Tune.py.")
     parser.add_argument('--limit', type=int, default=None,
                         help="Evaluate only the first N test examples (for smoke tests).")
+    parser.add_argument('--output_json', type=str, default=None,
+                        help="Write final metrics as JSON to this path, for CI/CD or a dashboard "
+                             "to consume without scraping stdout.")
     args = parser.parse_args(cli_args)
+
+    adaptive_config = None
+    if args.use_icl and args.adaptive_k:
+        adaptive_config = AdaptiveKConfig(
+            min_k=args.adaptive_min_k,
+            max_k=args.icl_top_k,
+            relative_drop=args.adaptive_relative_drop,
+            absolute_floor=args.adaptive_absolute_floor,
+        )
 
     HF_TOKEN = args.hf_token or os.getenv("HUGGINGFACE_HUB_TOKEN")
     if HF_TOKEN is None:
@@ -137,6 +191,9 @@ def main_function(cli_args):
                 "test_set_size": len(test_dataset),
                 "use_icl": args.use_icl,
                 "icl_top_k": args.icl_top_k,
+                "adaptive_k": args.adaptive_k,
+                "adaptive_min_k": args.adaptive_min_k if adaptive_config else None,
+                "adaptive_relative_drop": args.adaptive_relative_drop if adaptive_config else None,
                 "judge_model": args.judge_model,
                 "split_fingerprint": fingerprint,
                 "seed": args.seed,
@@ -202,6 +259,7 @@ def main_function(cli_args):
     # --- Batched Prediction Generation and Evaluation ---
     batch_size = args.batch_size
     test_f1, test_recall, test_precision = [], [], []
+    all_k_used = []
 
     num_examples = len(test_dataset)
     print("[INFO] Starting batch evaluation...")
@@ -212,10 +270,11 @@ def main_function(cli_args):
         batch_references = eval_labels[i: i + batch_size]
 
         if args.use_icl:
-            batch_icl_contexts = icl_prompts_batch(
+            batch_icl_contexts, batch_k_used = icl_prompts_batch(
                 batch_inputs, corpus_inputs, corpus_embeddings, corpus_outputs,
-                model_GTR, util, top_k=args.icl_top_k,
+                model_GTR, util, top_k=args.icl_top_k, adaptive_config=adaptive_config,
             )
+            all_k_used.extend(batch_k_used)
             batch_prompts = [
                 icl_ctx + f"Instruction: {ins}\nInput: {inp}\nResponse:"
                 for icl_ctx, ins, inp in zip(batch_icl_contexts, batch_instructions, batch_inputs, strict=True)
@@ -276,15 +335,51 @@ def main_function(cli_args):
     mean_precision = float(np.mean(test_precision))
     mean_recall = float(np.mean(test_recall))
     mean_f1 = float(np.mean(test_f1))
+    mean_k = float(np.mean(all_k_used)) if all_k_used else None
 
     if use_wandb:
-        wandb.log({
+        wandb_log = {
             "eval/precision": mean_precision,
             "eval/recall": mean_recall,
-            "eval/f1": mean_f1
-        })
+            "eval/f1": mean_f1,
+        }
+        if mean_k is not None:
+            wandb_log["eval/mean_demos_per_query"] = mean_k
+        wandb.log(wandb_log)
+
     print(f'[RESULT] Model averages - f1: {mean_f1:.4f} | recall: {mean_recall:.4f} | precision: {mean_precision:.4f}')
+    if mean_k is not None:
+        print(f'[RESULT] Mean demonstrations per query: {mean_k:.2f} '
+              f'(ceiling={args.icl_top_k}, adaptive={args.adaptive_k})')
     print(f'[RESULT] split={fingerprint} n={num_examples} icl={args.use_icl} adapter={args.adapter_id}')
+
+    if args.output_json:
+        # Machine-readable results, for a CI gate or a dashboard to read without
+        # scraping stdout. Every number needed to judge whether this run is
+        # comparable to another one is included, not just the headline score.
+        payload = {
+            "model_id": args.model_id,
+            "adapter_id": args.adapter_id,
+            "test_dataset": args.test_dataset,
+            "split_fingerprint": fingerprint,
+            "seed": args.seed,
+            "max_samples": args.max_samples,
+            "num_examples": num_examples,
+            "use_icl": args.use_icl,
+            "icl_top_k": args.icl_top_k if args.use_icl else None,
+            "adaptive_k": args.adaptive_k if args.use_icl else False,
+            "mean_demonstrations_per_query": mean_k,
+            "judge_model": args.judge_model,
+            "metrics": {
+                "bertscore_f1": mean_f1,
+                "bertscore_precision": mean_precision,
+                "bertscore_recall": mean_recall,
+            },
+        }
+        os.makedirs(os.path.dirname(os.path.abspath(args.output_json)), exist_ok=True)
+        with open(args.output_json, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+        print(f"[INFO] Wrote results JSON to {args.output_json}")
 
     if use_wandb:
         wandb.finish()

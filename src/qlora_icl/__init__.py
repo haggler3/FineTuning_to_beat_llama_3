@@ -8,10 +8,13 @@ Public surface:
     build_labels        causal-LM label construction with completion-only loss
     assert_no_leakage   guard that the ICL retrieval corpus and the evaluation
                         split do not overlap
+    select_k            adaptive per-query demonstration budget (see
+                        qlora_icl.adaptive_retrieval)
 """
 
 __version__ = "0.2.0"
 
+from qlora_icl.adaptive_retrieval import AdaptiveKConfig, select_indices, select_k
 from qlora_icl.splits import (
     DEFAULT_MAX_SAMPLES,
     DEFAULT_SEED,
@@ -22,7 +25,10 @@ from qlora_icl.splits import (
 __all__ = [
     "DEFAULT_MAX_SAMPLES",
     "DEFAULT_SEED",
+    "AdaptiveKConfig",
     "build_splits",
+    "select_indices",
+    "select_k",
     "split_fingerprint",
     "__version__",
 ]

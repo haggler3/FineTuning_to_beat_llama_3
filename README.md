@@ -3,10 +3,19 @@
 [![CI](https://github.com/CMUZrz/FineTuning_to_beat_llama_3/actions/workflows/ci.yml/badge.svg)](https://github.com/CMUZrz/FineTuning_to_beat_llama_3/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Changelog](https://img.shields.io/badge/changelog-Unreleased-informational.svg)](CHANGELOG.md)
 
 Parameter-efficient fine-tuning of small language models with
-demonstration-retrieved in-context learning — and an evaluation harness built so
-that a leaked demonstration fails the run instead of inflating the score.
+demonstration-retrieved in-context learning — packaged, tested, and with an
+evaluation harness built so that a leaked demonstration fails the run instead
+of inflating the score.
+
+If you're evaluating this for production use: `pip install`-able package with
+pinned dependencies, CI across two OSes and two Python versions, machine-readable
+(`--output_json`) evaluation output for a CI gate or dashboard, and an
+adaptive-retrieval mode built to cut inference cost without a corresponding
+quality drop (below). None of that substitutes for running it against your own
+data before you rely on it.
 
 Originally the course project for **10-623 Generative AI** at Carnegie Mellon
 University, by Dan Jung, Dhruva Byrapatna and Zachary Zdobinski.
@@ -104,6 +113,44 @@ judge's own tokenizer.
 
 ---
 
+## Adaptive-k retrieval
+
+Fixed-k Dr.ICL spends the same number of demonstration tokens on every query,
+whether the query needed them or not: an easy question pays for k demos it
+didn't need, and a question with no good match in the corpus gets k irrelevant
+ones anyway. [`select_k()`](src/qlora_icl/adaptive_retrieval.py) replaces the
+fixed count with a per-query budget decided from that query's own retrieval
+scores — keep demonstrations while they stay close to the best match, stop at
+the first one that falls off a cliff:
+
+```bash
+qlora-eval \
+  --model_id EleutherAI/pythia-410m --adapter_id ./pythia-410m-healthcare \
+  --test_dataset lavita/ChatDoctor-HealthCareMagic-100k --max_samples 4000 \
+  --use_icl --icl_top_k 5 --adaptive_k \
+  --output_json results/eval.json
+```
+
+`--icl_top_k` becomes the ceiling; each query spends up to that many
+demonstrations, and `--output_json` reports `mean_demonstrations_per_query`
+alongside the score, so you can see what was actually spent, not just what was
+configured. [`scripts/pareto_curve.py`](scripts/pareto_curve.py) runs fixed-k
+and several adaptive-k settings on the same model and the same examples and
+reports mean demonstration tokens against BERTScore F1 — the honest way to find
+out whether the trade is worth it on your data, rather than assume it.
+
+**Status:** the selection logic has 15 unit tests covering clustered scores,
+steep dropoffs, the min/max-k floor and ceiling, and order-independence, plus
+an integration test proving two queries with different score shapes really do
+spend a different number of demonstrations end-to-end (all in
+[`test_adaptive_retrieval.py`](tests/test_adaptive_retrieval.py) and
+[`test_evaluation.py`](tests/test_evaluation.py)). It has **not** yet had the
+GPU measurement `demo_leakage.py` got for the leakage fix below — that's what
+`pareto_curve.py` is for, and it hasn't been run yet. Treat the mechanism as
+verified and the cost/quality tradeoff as unmeasured until that changes.
+
+---
+
 ## Evaluation integrity
 
 This repository treats a plausible-looking number as a bug until it is shown not
@@ -154,21 +201,57 @@ with confidence intervals and a split fingerprint per row, as they land.
 
 ```
 src/qlora_icl/
-  splits.py            deterministic partition + fingerprint (shared)
-  train.py             QLoRA fine-tuning            -> qlora-train
-  evaluation.py        Dr.ICL evaluation harness    -> qlora-eval
-  tokenize_dataset.py  standalone tokenization      -> qlora-tokenize
+  splits.py               deterministic partition + fingerprint (shared)
+  train.py                QLoRA fine-tuning              -> qlora-train
+  evaluation.py           Dr.ICL evaluation harness       -> qlora-eval
+  tokenize_dataset.py     standalone tokenization         -> qlora-tokenize
+  adaptive_retrieval.py   per-query demonstration budget (select_k)
 scripts/
-  demo_leakage.py      quantifies the leakage and prompt-echo artifacts
-  run_tests_light.py   zero-install test runner (what CI executes)
+  demo_leakage.py       quantifies the leakage and prompt-echo artifacts
+  pareto_curve.py       fixed-k vs adaptive-k cost/quality measurement
+  run_tests_light.py    zero-install test runner (what CI executes)
 tests/
-  fakes.py             Dataset/Tokenizer doubles with real semantics
+  fakes.py              Dataset/Tokenizer doubles with real semantics
 docs/
   make_architecture_svg.py   regenerates both diagram themes
 infra/
   terraform/           GCP spot T4 + GCS checkpoint bucket
 results/               measured runs, committed
+Dockerfile            CUDA runtime image (not build-verified, see below)
+CHANGELOG.md          what changed and why, most recent first
 ```
+
+---
+
+## Deployment
+
+**Package.** `pip install -e .` for development, or `pip install .` for a
+pinned, reproducible install — every ML dependency in
+[`requirements.txt`](requirements.txt) is version-pinned, with the reason
+noted for the two that are pinned *below* their latest major version
+(`transformers`, `sentence-transformers`) rather than left floating.
+
+**CI.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the test
+suite on Ubuntu and Windows across Python 3.10 and 3.12, lints with `ruff`,
+and builds + validates the package metadata (`twine check`) on every push and
+PR — a red badge above means don't merge, not "check it manually."
+
+**Machine-readable results.** `qlora-eval --output_json path.json` writes
+BERTScore, the split fingerprint, and (in adaptive mode) mean demonstrations
+per query as JSON, for a pipeline to gate on or a dashboard to plot, rather
+than scraping stdout.
+
+**Docker.** A [`Dockerfile`](Dockerfile) is provided for `qlora-train` /
+`qlora-eval` / `qlora-tokenize` on a CUDA 12.4 runtime base. **It has not been
+build-verified in this pass or in CI** — pulling and building a full CUDA base
+image is heavier than this repo's other checks support, so validate it against
+your own registry and host before depending on it in production.
+
+**What's still missing for a hardened production deployment:** dependency
+vulnerability scanning, a signed/pinned base image digest rather than a
+floating tag, and load-bearing metrics/alerting beyond the JSON output above.
+None of that is present yet — said plainly rather than implied by the presence
+of a Dockerfile.
 
 ---
 

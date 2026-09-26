@@ -23,6 +23,7 @@ wandb/
 *.pt
 *-qlora-run/
 *-smoke/
+*-testproject/
 checkpoint-*/
 
 # Terraform state (may contain sensitive values)
