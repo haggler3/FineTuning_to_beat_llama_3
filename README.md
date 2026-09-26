@@ -5,7 +5,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CMUZrz/FineTuning_to_beat_llama_3/blob/main/try_in_colab.ipynb)
 
-**Authors:** Dan Jung, Dhruva Byrapatna, Zachary Zdobinski
 
 ---
 
