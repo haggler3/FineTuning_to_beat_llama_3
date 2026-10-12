@@ -1,4 +1,4 @@
-"""Run the full simulation + SLAM and export everything the web viewer needs to one JSON file."""
+"""Run the full simulation + graph SLAM and export everything the web viewer needs to one JSON file."""
 from __future__ import annotations
 
 import argparse
@@ -11,10 +11,14 @@ from pathlib import Path
 import numpy as np
 
 from . import world as W
-from .drone_slam import VOX, DroneSLAM, to_quat
-from .rover_slam import HALF, N, RES, RoverSLAM
-from .sensors import DRONE_AZ, DRONE_EL, DRONE_MAX_RANGE, ROVER_BEAMS, ROVER_MAX_RANGE
+from .drone_slam import KF as D_KF
+from .drone_slam import VOX, DroneGraphSLAM, to_quat
+from .rover_slam import KF as R_KF
+from .rover_slam import RoverGraphSLAM
+from .sensors import DRONE_AZ, DRONE_DIRS, DRONE_EL, DRONE_MAX_RANGE, ROVER_BEAMS, ROVER_MAX_RANGE
 from .sim import LIDAR_HZ, Simulation
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def b64(a: np.ndarray) -> str:
@@ -25,96 +29,118 @@ def wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 
-def run(duration: float, seed: int, out: Path, quiet: bool = False):
-    sim = Simulation(seed)
+def r3(a):
+    return [round(float(v), 3) for v in a]
+
+
+def run(duration: float, seed: int, out: Path, map_path: Path | None = None, quiet: bool = False):
+    world = W.load_world(map_path)
+    sim = Simulation(seed, world)
     dt = 1.0 / LIDAR_HZ
     nframes = int(duration * LIDAR_HZ)
-    rover = RoverSLAM(W.ROVER_START, seed=seed + 1)
-    f0 = None
-    rec = dict(t=[], movers=[], r_gt=[], r_est=[], r_dr=[], r_rng=[], r_part=[], d_gt=[], d_est=[], d_dr=[],
-               d_scan=[], d_add=[], d_rem=[], d_ok=[], grids=[])
+    rover = RoverGraphSLAM(world.rover_start, world.arena, seed=seed + 1)
     drone = None
+    rec = dict(t=[], movers=[], r_gt=[], r_est=[], r_dr=[], r_fe=[], r_rng=[], r_part=[],
+               d_gt=[], d_est=[], d_dr=[], d_fe=[], d_scan=[], d_add=[], d_rem=[], d_ok=[], d_resets=[], grids=[])
     t0 = time.time()
     for k in range(nframes):
         f = sim.step_frame()
         if drone is None:
-            drone = DroneSLAM(f.drone_pos, f.drone_R)
-        rover.step(f.rover_ranges, f.rover_odom, dt)
-        added, removed = drone.step(f.drone_vel_body, f.drone_gyro, f.drone_ranges, dt)
+            drone = DroneGraphSLAM(f.drone_pos, f.drone_R)
+        ev = rover.step(f.rover_ranges, f.rover_odom, dt)
+        added, removed, reset = drone.step(f.drone_vel_body, f.drone_gyro, f.drone_ranges, dt)
 
         rec["t"].append(round(f.t, 3))
-        rec["movers"].append([round(float(v), 3) for m in f.movers for v in m])
-        wy = lambda y: float(wrap(y))
-        rec["r_gt"].append([round(f.rover_pose[0], 3), round(f.rover_pose[1], 3), round(wy(f.rover_pose[2]), 3)])
-        rec["r_est"].append([round(float(v), 3) for v in rover.est])
-        rec["r_dr"].append([round(float(v), 3) for v in rover.dr])
+        rec["movers"].append(r3([v for m in f.movers for v in m]))
+        rec["r_gt"].append(r3([f.rover_pose[0], f.rover_pose[1], wrap(f.rover_pose[2])]))
+        rec["r_est"].append(r3(rover.est))
+        rec["r_dr"].append(r3(rover.dr))
+        rec["r_fe"].append(r3(rover.fe[-1]))
         rec["r_rng"].append(np.round(f.rover_ranges * 1000).astype(np.uint16))
-        rec["r_part"].append(np.round(rover.particles_xy(40) * 100).astype(np.int16))
-        q_est = to_quat(drone.R)
-        q_dr = to_quat(drone.R_dr)
-        rec["d_gt"].append([round(float(v), 3) for v in (*f.drone_pos, *f.drone_quat)])
-        rec["d_est"].append([round(float(v), 3) for v in (*drone.p, *q_est)])
-        rec["d_dr"].append([round(float(v), 3) for v in (*drone.p_dr, *q_dr)])
+        rec["r_part"].append(np.round(rover.front.P[:40, :2] * 100).astype(np.int16))
+        rec["d_gt"].append(r3([*f.drone_pos, *f.drone_quat]))
+        rec["d_est"].append(r3([*drone.p, *to_quat(drone.R)]))
+        rec["d_dr"].append(r3([*drone.p_dr, *to_quat(drone.R_dr)]))
+        rec["d_fe"].append(r3([*drone.front.p, *to_quat(drone.front.R)]))
         ok = f.drone_ranges > 0
-        from .sensors import DRONE_DIRS
-        pts = (DRONE_DIRS[ok] * f.drone_ranges[ok, None])[::3]
-        rec["d_scan"].append(np.round(pts * 100).astype(np.int16))
-        a = []
-        for i in added:
-            c = np.floor(drone.ctr[i] / VOX).astype(int)
-            a += [int(i), int(c[0]), int(c[1]), int(c[2])]
-        rec["d_add"].append(a)
+        rec["d_scan"].append(np.round((DRONE_DIRS[ok] * f.drone_ranges[ok, None])[::3] * 100).astype(np.int16))
+        rec["d_add"].append([int(v) for i in added for v in (i, *np.floor(drone.gmap.ctr[i] / VOX).astype(int))])
         rec["d_rem"].append([int(i) for i in removed])
         rec["d_ok"].append(int(drone.icp_ok))
-        if k % 5 == 0 or k == nframes - 1:
-            rec["grids"].append(dict(f=k, z=base64.b64encode(zlib.compress(rover.grid_bytes(), 6)).decode()))
+        if reset is not None:
+            rec["d_resets"].append(dict(f=k, v=reset))
+        if k % 5 == 0 or (ev and ev["rebuilt"]):
+            rec["grids"].append(dict(f=k, z=base64.b64encode(zlib.compress(rover.gmap.to_bytes(), 6)).decode()))
         if not quiet and k % 100 == 0:
-            e = np.linalg.norm(np.array(rec["r_est"][-1][:2]) - np.array(rec["r_gt"][-1][:2]))
-            de = np.linalg.norm(np.array(rec["d_est"][-1][:3]) - np.array(rec["d_gt"][-1][:3]))
-            print(f"  frame {k:4d}/{nframes}  rover err {e:.2f} m  drone err {de:.2f} m  ({time.time() - t0:.0f}s)")
+            e = np.linalg.norm(rover.est[:2] - f.rover_pose[:2])
+            de = np.linalg.norm(drone.p - f.drone_pos)
+            print(f"  frame {k:4d}/{nframes}  rover err {e:.2f} m  drone err {de:.2f} m  "
+                  f"loops r/d {len(rover.loops)}/{len(drone.loops)}  ({time.time() - t0:.0f}s)")
 
-    def err(est, gt, n):
-        return np.linalg.norm(np.array(est)[:, :n] - np.array(gt)[:, :n], axis=1)
+    # ---- final optimisation: smoothed trajectories + final maps ------------------------------------------
+    if not quiet:
+        print("  final optimisation + map rebuild ...")
+    r_smooth = rover.finish()
+    d_R, d_t = drone.finish()
+    rover.events[-1]["f"] = drone.events[-1]["f"] = nframes - 1  # final optimisation shown on the last frame
+    rec["grids"].append(dict(f=nframes - 1, z=base64.b64encode(zlib.compress(rover.gmap.to_bytes(), 6)).decode()))
+    final_vox = drone._rebuild_map()
+    rec["d_resets"].append(dict(f=nframes - 1, v=final_vox))
+    rec["d_add"][-1], rec["d_rem"][-1] = [], []
+    d_q = [to_quat(R) for R in d_R]
 
-    e_r, e_rdr = err(rec["r_est"], rec["r_gt"], 2), err(rec["r_dr"], rec["r_gt"], 2)
-    e_d, e_ddr = err(rec["d_est"], rec["d_gt"], 3), err(rec["d_dr"], rec["d_gt"], 3)
-    rms = lambda e: float(np.sqrt(np.mean(e ** 2)))
-    metrics = dict(rover_rmse=rms(e_r), rover_dr_rmse=rms(e_rdr), drone_rmse=rms(e_d), drone_dr_rmse=rms(e_ddr),
-                   rover_err=np.round(e_r, 3).tolist(), rover_dr_err=np.round(e_rdr, 3).tolist(),
-                   drone_err=np.round(e_d, 3).tolist(), drone_dr_err=np.round(e_ddr, 3).tolist(),
-                   drone_icp_ok=float(np.mean(rec["d_ok"])), voxels=int(drone.shown.sum()))
+    gt_r = np.array(rec["r_gt"])[:, :2]
+    gt_d = np.array(rec["d_gt"])[:, :3]
+    e = lambda est, gt, n: np.linalg.norm(np.array(est)[:, :n] - gt, axis=1)
+    rms = lambda x: float(np.sqrt(np.mean(np.square(x))))
+    err = dict(
+        rover_odom=e(rec["r_dr"], gt_r, 2), rover_front=e(rec["r_fe"], gt_r, 2), rover_online=e(rec["r_est"], gt_r, 2),
+        rover_opt=e(r_smooth, gt_r, 2),
+        drone_odom=e(rec["d_dr"], gt_d, 3), drone_front=e(rec["d_fe"], gt_d, 3), drone_online=e(rec["d_est"], gt_d, 3),
+        drone_opt=e(d_t, gt_d, 3))
+    metrics = {f"{k}_rmse": rms(v) for k, v in err.items()}
+    metrics.update({f"{k}_err": np.round(v, 3).tolist() for k, v in err.items()})
+    metrics.update(rover_loops=len(rover.loops), drone_loops=len(drone.loops), drone_icp_ok=float(np.mean(rec["d_ok"])),
+                   voxels=int(drone.gmap.shown.sum()))
+
     data = dict(
-        meta=dict(n=nframes, dt=dt, rover_beams=ROVER_BEAMS, rover_max=ROVER_MAX_RANGE, res=RES, half=HALF, grid=N,
-                  drone_az=len(DRONE_AZ), drone_el=np.round(np.degrees(DRONE_EL), 1).tolist(), drone_max=DRONE_MAX_RANGE,
-                  vox=VOX, seed=seed),
-        world=dict(statics=[dict(kind=s.kind, pos=s.pos, size=s.size, color=s.color) for s in sim.statics],
-                   movers=[dict(name=m.name, kind=m.kind, size=m.size, color=m.color, z=m.z) for m in sim.movers],
-                   rover_route=W.ROVER_ROUTE, drone_route=W.DRONE_ROUTE, arena=W.ARENA),
-        metrics=metrics,
-        t=rec["t"], movers=rec["movers"],
-        rover=dict(gt=rec["r_gt"], est=rec["r_est"], dr=rec["r_dr"], ranges=b64(np.stack(rec["r_rng"])),
-                   particles=b64(np.stack(rec["r_part"]))),
-        drone=dict(gt=rec["d_gt"], est=rec["d_est"], dr=rec["d_dr"], icp_ok=rec["d_ok"], add=rec["d_add"], rem=rec["d_rem"],
-                   scan_len=[len(s) for s in rec["d_scan"]], scan=b64(np.concatenate(rec["d_scan"]))),
+        meta=dict(n=nframes, dt=dt, rover_beams=ROVER_BEAMS, rover_max=ROVER_MAX_RANGE, res=0.1, half=rover.half,
+                  grid=rover.gmap.n, drone_az=len(DRONE_AZ), drone_el=np.round(np.degrees(DRONE_EL), 1).tolist(),
+                  drone_max=DRONE_MAX_RANGE, vox=VOX, seed=seed, rover_kf=R_KF, drone_kf=D_KF),
+        world=dict(name=world.name, arena=world.arena, zones=world.zones, rover_route=world.rover_route,
+                   drone_route=world.drone_route,
+                   statics=[dict(kind=s.kind, pos=s.pos, size=s.size, yaw=s.yaw, color=s.color) for s in world.statics],
+                   movers=[dict(name=m.name, kind=m.kind, size=m.size, color=m.color, z=m.z) for m in world.movers]),
+        metrics=metrics, t=rec["t"], movers=rec["movers"],
+        rover=dict(gt=rec["r_gt"], est=rec["r_est"], dr=rec["r_dr"], fe=rec["r_fe"], opt=[r3(p) for p in r_smooth],
+                   ranges=b64(np.stack(rec["r_rng"])), particles=b64(np.stack(rec["r_part"])),
+                   graph=rover.events),
+        drone=dict(gt=rec["d_gt"], est=rec["d_est"], dr=rec["d_dr"], fe=rec["d_fe"],
+                   opt=[r3([*p, *q]) for p, q in zip(d_t, d_q)], icp_ok=rec["d_ok"], add=rec["d_add"], rem=rec["d_rem"],
+                   resets=rec["d_resets"], scan_len=[len(s) for s in rec["d_scan"]], scan=b64(np.concatenate(rec["d_scan"])),
+                   graph=drone.events),
         grids=rec["grids"],
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(data, separators=(",", ":")))
     if not quiet:
-        print(f"rover  ATE  SLAM {metrics['rover_rmse']:.3f} m   dead-reckoning {metrics['rover_dr_rmse']:.3f} m")
-        print(f"drone  ATE  SLAM {metrics['drone_rmse']:.3f} m   dead-reckoning {metrics['drone_dr_rmse']:.3f} m"
-              f"   (ICP accepted {100 * metrics['drone_icp_ok']:.0f}% of frames, {metrics['voxels']} map voxels)")
-        print(f"wrote {out} ({out.stat().st_size / 1e6:.1f} MB)")
+        m = metrics
+        print(f"rover  RMSE  odometry {m['rover_odom_rmse']:.2f} m | front-end {m['rover_front_rmse']:.2f} m | "
+              f"graph SLAM online {m['rover_online_rmse']:.2f} m, optimised {m['rover_opt_rmse']:.2f} m  ({m['rover_loops']} loop closures)")
+        print(f"drone  RMSE  odometry {m['drone_odom_rmse']:.2f} m | front-end {m['drone_front_rmse']:.2f} m | "
+              f"graph SLAM online {m['drone_online_rmse']:.2f} m, optimised {m['drone_opt_rmse']:.2f} m  ({m['drone_loops']} loop closures)")
+        print(f"wrote {out} ({out.stat().st_size / 1e6:.1f} MB) in {time.time() - t0:.0f}s")
     return metrics
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--duration", type=float, default=80.0)
+    ap.add_argument("--duration", type=float, default=115.0)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--out", type=Path, default=Path(__file__).resolve().parents[1] / "viewer" / "data" / "run.json")
+    ap.add_argument("--map", type=Path, default=None, help="JSON map (default: maps/foundry.json)")
+    ap.add_argument("--out", type=Path, default=ROOT / "viewer" / "data" / "run.json")
     a = ap.parse_args()
-    run(a.duration, a.seed, a.out)
+    run(a.duration, a.seed, a.out, a.map)
 
 
 if __name__ == "__main__":

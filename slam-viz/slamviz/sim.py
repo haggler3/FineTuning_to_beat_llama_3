@@ -7,7 +7,7 @@ import mujoco
 import numpy as np
 
 from . import world as W
-from .control import DroneController, RoverNav
+from .control import DroneController, RoverNav, wrap
 from .sensors import drone_lidar, rover_lidar
 
 LIDAR_HZ = 10
@@ -29,18 +29,18 @@ class Frame:
 
 
 class Simulation:
-    def __init__(self, seed: int = 0):
+    def __init__(self, seed: int = 0, world: W.World | None = None):
         self.rng = np.random.default_rng(seed)
-        self.statics, self.movers = W.build_statics(), W.build_movers()
-        self.m = mujoco.MjModel.from_xml_string(W.mjcf(self.statics, self.movers))
+        self.world = world or W.load_world()
+        self.statics, self.movers = self.world.statics, self.world.movers
+        self.m = mujoco.MjModel.from_xml_string(W.mjcf(self.world))
         self.d = mujoco.MjData(self.m)
         self.drone_id = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_BODY, "drone")
         self.rl, self.dl = rover_lidar(self.m, self.d, self.rng), drone_lidar(self.m, self.d, self.rng)
-        self.nav, self.ctl = RoverNav(W.ROVER_ROUTE), DroneController(W.DRONE_ROUTE)
-        self.d.qpos[:3] = W.ROVER_START
+        self.nav, self.ctl = RoverNav(self.world.rover_route), DroneController(self.world.drone_route)
+        self.d.qpos[:3] = self.world.rover_start
         mujoco.mj_forward(self.m, self.d)
-        self.ranges = np.full(360, 10.0)
-        self.collisions = 0
+        self.ranges = np.full(360, 10.0)  # last rover scan; the reactive navigator reads it between lidar frames
 
     @property
     def rover_pose(self):
@@ -76,7 +76,7 @@ class Simulation:
         c, s = np.cos(yaw), np.sin(yaw)
         self.ranges = self.rl.scan(np.array([x, y, 0.25]), np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]))
         # wheel odometry: forward speed + yaw rate measured over the interval, with scale error, bias and noise
-        dx, dy, dyaw = x - x0, y - y0, W_wrap(yaw - yaw0)
+        dx, dy, dyaw = x - x0, y - y0, wrap(yaw - yaw0)
         v_true = (dx * np.cos(yaw0 + dyaw / 2) + dy * np.sin(yaw0 + dyaw / 2)) / (1 / LIDAR_HZ)
         w_true = dyaw / (1 / LIDAR_HZ)
         odom = (v_true * 1.035 + self.rng.normal(0, 0.03), w_true * 1.02 + 0.018 + self.rng.normal(0, 0.03))
@@ -89,6 +89,3 @@ class Simulation:
         return Frame(t, self.rover_pose.copy(), self.ranges.copy(), odom, pos, R, np.array(d.qpos[6:10]),
                      ranges, [mo.pose(t) for mo in self.movers], vel_meas, gyro)
 
-
-def W_wrap(a):
-    return (a + np.pi) % (2 * np.pi) - np.pi

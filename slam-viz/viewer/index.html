@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SLAM Lab — rover + drone mapping</title>
+<title>SLAM Lab — graph SLAM</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2711%27 fill=%27none%27 stroke=%27%2338d9ff%27 stroke-width=%273%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%274%27 fill=%27%23ffb347%27/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
@@ -17,7 +17,7 @@
 
 <header class="card brand">
   <div class="logo">◎</div>
-  <div><h1>SLAM Lab</h1><p>MuJoCo rover + drone · live mapping in a dynamic world</p></div>
+  <div><h1>SLAM Lab</h1><p id="mapname">Graph SLAM · MuJoCo rover + drone</p></div>
 </header>
 
 <aside class="card panel" id="panel">
@@ -25,12 +25,16 @@
   <label style="--c:#7d8bb0"><input type="checkbox" data-layer="world" checked>Ground-truth world</label>
   <label style="--c:#3dd9ff"><input type="checkbox" data-layer="rmap" checked>Rover occupancy map</label>
   <label style="--c:#ffb347"><input type="checkbox" data-layer="dmap" checked>Drone 3D voxel map</label>
+  <label style="--c:#d77bff"><input type="checkbox" data-layer="graph" checked>Pose graph + loop closures</label>
   <label style="--c:#3dd9ff"><input type="checkbox" data-layer="rscan" checked>Rover LiDAR rays</label>
   <label style="--c:#ffb347"><input type="checkbox" data-layer="dscan" checked>Drone LiDAR rays</label>
   <label style="--c:#b794ff"><input type="checkbox" data-layer="parts" checked>Particle cloud</label>
-  <label style="--c:#ffffff"><input type="checkbox" data-layer="trails" checked>Trajectories</label>
-  <label style="--c:#ff4d6d"><input type="checkbox" data-layer="dr">Dead-reckoning drift</label>
+  <label style="--c:#ffffff"><input type="checkbox" data-layer="trails" checked>Truth + online estimate</label>
+  <label style="--c:#9a86c9"><input type="checkbox" data-layer="fe">Front-end odometry</label>
+  <label style="--c:#ff4d6d"><input type="checkbox" data-layer="dr">Raw dead-reckoning</label>
+  <label style="--c:#9dffb0"><input type="checkbox" data-layer="opt">Optimised trajectory</label>
   <label style="--c:#9dffb0"><input type="checkbox" data-layer="ghost" checked>SLAM pose estimate</label>
+  <label style="--c:#e6ecff"><input type="checkbox" data-layer="zones" checked>Zone labels</label>
   <h2>Camera</h2>
   <div class="seg" id="cams">
     <button data-cam="orbit" class="on">Orbit <kbd>1</kbd></button>
@@ -42,14 +46,22 @@
 </aside>
 
 <section class="card stats" id="stats">
-  <div class="stat rover"><span>ROVER · 2D grid SLAM</span>
-    <b id="rErr">–</b><small>pose error · dead-reckoning <em id="rDr">–</em></small></div>
-  <div class="stat drone"><span>DRONE · 3D LiDAR SLAM</span>
-    <b id="dErr">–</b><small>pose error · dead-reckoning <em id="dDr">–</em></small></div>
-  <div class="row"><span>ICP lock</span><b id="icp">–</b><span>Map voxels</span><b id="vox">–</b></div>
-  <canvas id="chart" width="560" height="150"></canvas>
-  <div class="legend"><i style="--c:#3dd9ff"></i>rover SLAM <i style="--c:#ff7a8a"></i>rover odom <i style="--c:#ffb347"></i>drone SLAM <i style="--c:#c13b55"></i>drone odom</div>
+  <div class="stat rover"><span>ROVER · 2D graph SLAM</span>
+    <b id="rErr">–</b><small>pose error · front-end <em id="rFe">–</em> · odometry <em id="rDr">–</em></small></div>
+  <div class="stat drone"><span>DRONE · 3D graph SLAM</span>
+    <b id="dErr">–</b><small>pose error · front-end <em id="dFe">–</em> · odometry <em id="dDr">–</em></small></div>
+  <div class="row"><span>Loop closures <b id="loops">–</b></span><span>Optimisations <b id="opts">–</b></span></div>
+  <div class="row"><span>ICP <b id="icp">–</b></span><span>Voxels <b id="vox">–</b></span></div>
+  <canvas id="chartR" width="560" height="120"></canvas>
+  <canvas id="chartD" width="560" height="120"></canvas>
+  <div class="legend"><i style="--c:#ff4d6d"></i>odom <i style="--c:#9a86c9"></i>front-end <i style="--c:#ffffff"></i>graph SLAM <i style="--c:#9dffb0"></i>optimised</div>
 </section>
+
+<section class="card results" id="final"></section>
+
+<div id="toast"></div>
+<div id="caption"></div>
+<div id="titlecard"><div id="tcTitle"></div><div id="tcSub"></div></div>
 
 <section class="card mini">
   <div class="mini-h"><span>Rover SLAM · top-down</span><span id="rmapN"></span></div>

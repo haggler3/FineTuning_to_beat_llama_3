@@ -41,7 +41,6 @@ class DroneController:
 
     def __init__(self, route, vmax=1.5):
         self.route, self.vmax, self.i, self.yaw = list(route), vmax, 0, 0.0
-        self.done = False
 
     def step(self, pos, vel, R, wb, dt):
         wp = np.array(self.route[self.i])
