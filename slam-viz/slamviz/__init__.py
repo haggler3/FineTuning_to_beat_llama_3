@@ -1,1 +1,1 @@
-"""Interactive SLAM visualisation: MuJoCo rover + drone, 2D/3D SLAM, Three.js viewer."""
+"""Graph SLAM for a MuJoCo rover (2D) and drone (3D) in a dynamic custom world, with an interactive Three.js viewer."""

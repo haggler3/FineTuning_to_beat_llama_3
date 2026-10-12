@@ -17,7 +17,6 @@ def wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 
-
 def _gather(state, idx):
     return tuple(a[idx] for a in state)
 

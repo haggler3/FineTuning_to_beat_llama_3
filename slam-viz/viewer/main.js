@@ -18,7 +18,7 @@ const b64buf = (s) => { const bin = atob(s), u = new Uint8Array(bin.length); for
 const inflate = async (s) => new Uint8Array(await new Response(new Blob([b64buf(s)]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
 
 msg('Loading simulation…');
-const D = await (await fetch('data/run.json')).json();
+const D = await (await fetch(new URLSearchParams(location.search).get('data') || 'data/run.json')).json();
 const M = D.meta, NF = M.n, GN = M.grid, HALF = M.half, ARENA = D.world.arena, E = D.metrics;
 const rRanges = new Uint16Array(b64buf(D.rover.ranges));
 const rParts = new Int16Array(b64buf(D.rover.particles));

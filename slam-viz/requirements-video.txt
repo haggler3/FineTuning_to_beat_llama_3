@@ -1,0 +1,2 @@
+# only needed for tools/make_video.py (also needs ffmpeg on PATH and a Chromium: `playwright install chromium`)
+playwright
