@@ -5,7 +5,7 @@ Three.js viewer and a scripted film of the whole run.
 
 ![preview](docs/preview.png)
 
-▶ **Film:** [`docs/slam_lab.mp4`](docs/slam_lab.mp4) (rendered by `tools/make_video.py`)
+▶ **Film:** [`docs/slam_lab.mp4`](docs/slam_lab.mp4) — 100 s, 1280×720, 27 MB (rendered by `tools/make_video.py`)
 
 Both robots fly/drive through **The Foundry**, a 28 × 28 m industrial hall (octagonal rotunda, shelving aisles,
 container yard with cluttered lanes, a gantry crane, a pillar row) shared with four moving obstacles. Each builds its
