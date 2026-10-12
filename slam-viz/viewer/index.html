@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLAM Lab — rover + drone mapping</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2711%27 fill=%27none%27 stroke=%27%2338d9ff%27 stroke-width=%273%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%274%27 fill=%27%23ffb347%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="loading"><div class="spinner"></div><div id="loadmsg">Loading simulation…</div></div>
+
+<header class="card brand">
+  <div class="logo">◎</div>
+  <div><h1>SLAM Lab</h1><p>MuJoCo rover + drone · live mapping in a dynamic world</p></div>
+</header>
+
+<aside class="card panel" id="panel">
+  <h2>Layers</h2>
+  <label style="--c:#7d8bb0"><input type="checkbox" data-layer="world" checked>Ground-truth world</label>
+  <label style="--c:#3dd9ff"><input type="checkbox" data-layer="rmap" checked>Rover occupancy map</label>
+  <label style="--c:#ffb347"><input type="checkbox" data-layer="dmap" checked>Drone 3D voxel map</label>
+  <label style="--c:#3dd9ff"><input type="checkbox" data-layer="rscan" checked>Rover LiDAR rays</label>
+  <label style="--c:#ffb347"><input type="checkbox" data-layer="dscan" checked>Drone LiDAR rays</label>
+  <label style="--c:#b794ff"><input type="checkbox" data-layer="parts" checked>Particle cloud</label>
+  <label style="--c:#ffffff"><input type="checkbox" data-layer="trails" checked>Trajectories</label>
+  <label style="--c:#ff4d6d"><input type="checkbox" data-layer="dr">Dead-reckoning drift</label>
+  <label style="--c:#9dffb0"><input type="checkbox" data-layer="ghost" checked>SLAM pose estimate</label>
+  <h2>Camera</h2>
+  <div class="seg" id="cams">
+    <button data-cam="orbit" class="on">Orbit <kbd>1</kbd></button>
+    <button data-cam="rover">Rover <kbd>2</kbd></button>
+    <button data-cam="drone">Drone <kbd>3</kbd></button>
+    <button data-cam="top">Top <kbd>4</kbd></button>
+    <button data-cam="cine">Cine <kbd>5</kbd></button>
+  </div>
+</aside>
+
+<section class="card stats" id="stats">
+  <div class="stat rover"><span>ROVER · 2D grid SLAM</span>
+    <b id="rErr">–</b><small>pose error · dead-reckoning <em id="rDr">–</em></small></div>
+  <div class="stat drone"><span>DRONE · 3D LiDAR SLAM</span>
+    <b id="dErr">–</b><small>pose error · dead-reckoning <em id="dDr">–</em></small></div>
+  <div class="row"><span>ICP lock</span><b id="icp">–</b><span>Map voxels</span><b id="vox">–</b></div>
+  <canvas id="chart" width="560" height="150"></canvas>
+  <div class="legend"><i style="--c:#3dd9ff"></i>rover SLAM <i style="--c:#ff7a8a"></i>rover odom <i style="--c:#ffb347"></i>drone SLAM <i style="--c:#c13b55"></i>drone odom</div>
+</section>
+
+<section class="card mini">
+  <div class="mini-h"><span>Rover SLAM · top-down</span><span id="rmapN"></span></div>
+  <canvas id="mini" width="300" height="300"></canvas>
+</section>
+
+<footer class="card bar">
+  <button id="play" title="Space">❚❚</button>
+  <button id="step-" title="←">⏮</button>
+  <button id="step+" title="→">⏭</button>
+  <input id="scrub" type="range" min="0" max="1" step="1" value="0">
+  <span id="time">0.0 s</span>
+  <div class="seg small" id="speeds"><button data-s="0.5">½×</button><button data-s="1" class="on">1×</button><button data-s="2">2×</button><button data-s="4">4×</button></div>
+</footer>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
